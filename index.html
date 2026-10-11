@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="ms">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sistem Tempahan Uniform Sekolah</title>
+    <meta
+      name="description"
+      content="Sistem tempahan, bayaran, dan pemantauan penyerahan uniform sekolah."
+    />
+    <link rel="stylesheet" href="./styles.css?v=4" />
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="crest" aria-hidden="true">
+            <svg viewBox="0 0 64 64" role="img">
+              <path d="M32 5 54 14v17c0 15-9 24-22 29C19 55 10 46 10 31V14L32 5Z" />
+              <path d="M20 24h24M22 34h20M26 44h12" />
+              <path d="M32 16v34" />
+            </svg>
+          </div>
+          <div>
+            <p>SRII Ar Razi Meru 2</p>
+            <h1>Tempahan Uniform</h1>
+          </div>
+        </div>
+
+        <nav class="nav" aria-label="Mod utama">
+          <button class="nav-button active" data-view="parent">
+            <span data-icon="user"></span>
+            Ibu bapa
+          </button>
+          <button class="nav-button" data-view="admin">
+            <span data-icon="shield"></span>
+            Guru
+          </button>
+        </nav>
+
+      </aside>
+
+      <main class="main">
+        <section class="topbar">
+          <div>
+            <p class="eyebrow">Sistem tempahan dan pembelian</p>
+            <h2 id="page-title">Borang Tempahan Ibu Bapa</h2>
+          </div>
+          <div class="top-actions">
+            <button class="ghost-button" id="reload-orders" hidden>Muat semula tempahan</button>
+            <button class="ghost-button" id="logout-teacher" hidden>Log keluar</button>
+            <button class="ghost-button" id="refresh-students">
+              <span data-icon="refresh"></span>
+              Muat semula murid
+            </button>
+            <button class="ghost-button" id="export-orders">
+              <span data-icon="download"></span>
+              Export CSV
+            </button>
+          </div>
+        </section>
+
+        <div class="notice" id="data-notice" hidden></div>
+        <div class="notice" id="save-status" role="status" hidden></div>
+
+        <section id="parent-view" class="view active-view">
+          <div class="parent-layout">
+            <section class="panel">
+              <div class="panel-head">
+                <div>
+                  <span class="label">Langkah 1</span>
+                  <h3>Pilih nama anak</h3>
+                </div>
+                <span class="pill" id="student-count">0 murid</span>
+              </div>
+              <button class="ghost-button" id="change-student" hidden>Tukar murid</button>
+              <div class="field" id="student-search-field">
+                <label for="student-search">Cari nama atau kelas</label>
+                <input id="student-search" type="search" placeholder="Contoh: Ahmad, 1 BIJAK" />
+              </div>
+              <div class="student-list" id="student-list" aria-live="polite"></div>
+            </section>
+
+            <section class="panel order-panel">
+              <div class="panel-head">
+                <div>
+                  <span class="label">Langkah 2</span>
+                  <h3>Tempahan uniform</h3>
+                </div>
+                <span class="pill muted" id="selected-student-pill">Belum pilih murid</span>
+              </div>
+
+              <div class="selected-card" id="selected-student-card">
+                Pilih nama murid dahulu untuk mula membuat tempahan.
+              </div>
+
+              <div class="field" id="gender-field" hidden>
+                <label for="uniform-gender">Uniform</label>
+                <select id="uniform-gender"><option>Lelaki</option><option>Perempuan</option></select>
+              </div>
+
+              <div class="order-grid" id="product-grid"></div>
+
+              <form class="payment-form" id="parent-order-form">
+                <div class="cart-summary">
+                  <div>
+                    <span class="label">Jumlah bayaran</span>
+                    <strong id="cart-total">RM0.00</strong>
+                  </div>
+                  <div>
+                    <span class="label">Jumlah item</span>
+                    <strong id="cart-items">0</strong>
+                  </div>
+                </div>
+
+                <section class="payment-details" aria-labelledby="payment-details-title">
+                  <h4 id="payment-details-title">Maklumat bayaran</h4>
+                  <div class="payment-details-grid">
+                    <div class="bank-details">
+                      <dl>
+                        <dt>Nama bank</dt><dd>Bank Islam</dd>
+                        <dt>No akaun</dt>
+                        <dd class="account-number-row"><strong id="bank-account-number">12319010018722</strong><button type="button" class="icon-button copy-account" id="copy-account" title="Salin nombor akaun" aria-label="Salin nombor akaun"><span data-icon="copy"></span></button></dd>
+                        <dt>Nama penerima</dt><dd>SEKOLAH RENDAH ISLAM INTEGRASI AR RAZI MERU 2</dd>
+                      </dl>
+                      <p class="copy-status" id="copy-account-status" role="status" aria-live="polite"></p>
+                    </div>
+                    <a class="payment-qr" href="./bank-islam-qr.jpeg" target="_blank" rel="noopener" aria-label="Buka gambar QR DuitNow Bank Islam">
+                      <img src="./bank-islam-qr.jpeg" width="625" height="880" alt="QR DuitNow Bank Islam untuk Sekolah Rendah Islam Integrasi Ar Razi Meru" />
+                    </a>
+                  </div>
+                </section>
+
+                <div class="form-grid">
+                  <div class="field">
+                    <label for="payer-name">Nama pembayar</label>
+                    <input id="payer-name" required placeholder="Nama ibu / bapa / penjaga" />
+                  </div>
+                  <div class="field">
+                    <label for="payment-method">Kaedah bayaran</label>
+                    <select id="payment-method">
+                      <option value="QR">Transfer akaun bank / QR</option>
+                      <option value="Tunai">Tunai</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="payment-amount">Jumlah dibayar (RM)</label>
+                    <input id="payment-amount" type="number" min="0" step="0.01" value="0" />
+                  </div>
+                </div>
+
+                <div class="field">
+                  <label for="receipt-upload">Upload resit bayaran</label>
+                  <input id="receipt-upload" type="file" accept="image/*,.pdf" />
+                  <small>Gambar JPG, PNG, WEBP atau PDF, maksimum 5 MB.</small>
+                </div>
+
+                <div class="field">
+                  <label for="order-note">Catatan tambahan</label>
+                  <textarea id="order-note" rows="3" placeholder="Contoh: saiz perlu longgar sedikit"></textarea>
+                </div>
+
+                <button class="primary-button" type="submit">
+                  <span data-icon="save"></span>
+                  Hantar tempahan
+                </button>
+              </form>
+            </section>
+          </div>
+        </section>
+
+        <section id="admin-view" class="view">
+          <section class="login-panel" id="login-panel">
+            <div>
+              <span class="label">Akses guru</span>
+              <h3>Login rekod tempahan</h3>
+              <p>Masukkan kata laluan guru untuk memantau tempahan, bayaran, dan serahan barang.</p>
+            </div>
+            <form id="login-form" class="login-form">
+              <div class="field">
+                <label for="teacher-password">Kata laluan</label>
+                <input id="teacher-password" type="password" required autocomplete="current-password" />
+              </div>
+              <button class="primary-button" type="submit">
+                <span data-icon="login"></span>
+                Login
+              </button>
+            </form>
+          </section>
+
+          <div id="admin-workspace" hidden>
+            <div class="tabs" role="tablist" aria-label="Modul guru">
+              <button class="tab active" data-admin-tab="dashboard">Dashboard</button>
+              <button class="tab" data-admin-tab="products">Produk & harga</button>
+              <button class="tab" data-admin-tab="manual">Tempahan murid</button>
+              <button class="tab" data-admin-tab="payments">Bayaran</button>
+              <button class="tab" data-admin-tab="orders">Semua tempahan</button>
+              <button class="tab" data-admin-tab="reports">Laporan</button>
+            </div>
+
+            <section class="admin-tab active-admin-tab" id="tab-dashboard">
+              <div class="metrics" id="metrics"></div>
+              <div class="two-col">
+                <div class="panel">
+                  <div class="panel-head">
+                    <h3>Tempahan terkini</h3>
+                    <span class="pill muted" id="recent-count">0 rekod</span>
+                  </div>
+                  <div id="recent-orders" class="stack"></div>
+                </div>
+                <div class="panel">
+                  <div class="panel-head">
+                    <h3>Ringkasan status</h3>
+                  </div>
+                  <div id="status-breakdown" class="status-bars"></div>
+                </div>
+              </div>
+            </section>
+
+            <section class="admin-tab" id="tab-products">
+              <div class="panel">
+                <div class="panel-head">
+                  <div>
+                    <span class="label">Tetapan</span>
+                    <h3>Produk dan harga</h3>
+                  </div>
+                </div>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Produk</th>
+                        <th>Kategori</th>
+                        <th>Harga jualan / saiz</th>
+                        <th>Harga kos</th>
+                        <th>Saiz</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody id="product-table"></tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+
+            <section class="admin-tab" id="tab-manual">
+              <div class="panel">
+                <div class="panel-head">
+                  <div>
+                    <span class="label">Borang manual</span>
+                    <h3>Masukkan tempahan murid</h3>
+                  </div>
+                </div>
+                <div class="manual-grid">
+                  <div class="field">
+                    <label for="manual-gender">Uniform</label>
+                    <select id="manual-gender"><option>Lelaki</option><option>Perempuan</option></select>
+                  </div>
+                  <div class="field">
+                    <label for="manual-student">Nama murid</label>
+                    <select id="manual-student"></select>
+                  </div>
+                  <div class="field">
+                    <label for="manual-note">Catatan</label>
+                    <input id="manual-note" placeholder="Catatan borang manual" />
+                  </div>
+                </div>
+                <div id="manual-products" class="order-grid compact"></div>
+                <p>Jumlah tempahan: <strong id="manual-total">RM0.00</strong></p>
+                <button class="primary-button" id="save-manual-order">
+                  <span data-icon="save"></span>
+                  Simpan tempahan manual
+                </button>
+              </div>
+            </section>
+
+            <section class="admin-tab" id="tab-payments">
+              <div class="panel">
+                <div class="panel-head">
+                  <div>
+                    <span class="label">Rekod bayaran</span>
+                    <h3>Kemaskini bayaran</h3>
+                  </div>
+                </div>
+                <div id="payment-records" class="stack"></div>
+              </div>
+            </section>
+
+            <section class="admin-tab" id="tab-orders">
+              <div class="panel">
+                <div class="panel-head">
+                  <div>
+                    <span class="label">Summary order</span>
+                    <h3>Senarai semua tempahan</h3>
+                  </div>
+                </div>
+                <div class="filters">
+                  <input id="filter-search" type="search" placeholder="Cari nama murid" />
+                  <select id="filter-year">
+                    <option value="">Semua tahun</option>
+                  </select>
+                  <select id="filter-class">
+                    <option value="">Semua kelas</option>
+                  </select>
+                  <select id="filter-payment">
+                    <option value="">Semua status bayaran</option>
+                    <option>Belum bayar</option>
+                    <option>Bayar sebahagian</option>
+                    <option>Selesai bayar</option>
+                  </select>
+                  <select id="filter-delivery">
+                    <option value="">Semua status serahan</option>
+                    <option>Belum selesai</option>
+                    <option>Selesai diserahkan</option>
+                  </select>
+                </div>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Murid</th>
+                        <th>Tahun/Kelas</th>
+                        <th>Item</th>
+                        <th>Jumlah</th>
+                        <th>Bayaran</th>
+                        <th>Baki</th>
+                        <th>Status bayaran</th>
+                        <th>Serahan</th>
+                      </tr>
+                    </thead>
+                    <tbody id="orders-table"></tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+
+            <section class="admin-tab" id="tab-reports">
+              <div class="reports-grid">
+                <div class="panel">
+                  <div class="panel-head">
+                    <h3>Laporan kelas</h3>
+                  </div>
+                  <div id="class-report" class="report-list"></div>
+                </div>
+                <div class="panel">
+                  <div class="panel-head">
+                    <h3>Laporan kewangan</h3>
+                  </div>
+                  <div id="finance-report" class="report-list"></div>
+                </div>
+                <div class="panel">
+                  <div class="panel-head">
+                    <h3>Senarai belum selesai</h3>
+                  </div>
+                  <div id="pending-report" class="report-list"></div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <template id="icon-template"></template>
+    <script id="teacher-login-config" type="application/json">{"password":"Guru1234"}</script>
+    <script src="./catalog.js?v=4"></script>
+    <script src="./api.js?v=4"></script>
+    <script src="./app.js?v=4" type="module"></script>
+  </body>
+</html>
