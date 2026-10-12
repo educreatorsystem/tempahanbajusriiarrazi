@@ -1,78 +1,59 @@
-# Sistem Tempahan Uniform Sekolah
+# Sistem Tempahan Uniform Sekolah - Versi 6
 
-Pakej laman statik untuk GitHub Pages dengan backend Google Apps Script, Google Sheets dan Google Drive. Fail index.html sudah berada pada aras utama repository. Tiada npm atau proses build diperlukan.
+Laman GitHub: https://educreatorsystem.github.io/tempahanbajusriiarrazi/
 
-## Fail Dalam Pakej
+## Perubahan
 
-| Fail | Kegunaan |
-| --- | --- |
-| index.html | Halaman ibu bapa dan guru |
-| styles.css | Reka bentuk dan paparan telefon |
-| app.js | Pilihan murid, tempahan, bayaran dan rekod guru |
-| catalog.js | Item, saiz dan harga mengikut borang |
-| api.js | Sambungan ke deployment Apps Script |
-| bank-islam-qr.jpeg | Gambar QR asal sekolah |
-| apps-script/Code.gs | Backend lengkap dalam satu fail |
-| .nojekyll | Terbitkan fail statik tanpa Jekyll |
+- Senarai nama tempahan terkini dipadam daripada Dashboard.
+- Harga jualan dan harga kos boleh ditetapkan untuk SETIAP saiz.
+- Bayaran murid dipaparkan dalam jadual dengan tapisan kelas, item, status dan carian nama.
+- Guru boleh kemaskini status dan jumlah terkumpul diterima. Baki, kutipan tunai/QR dan laporan dikemas kini mengikut rekod bayaran; sejarah dan resit asal dikekalkan.
+- Ibu bapa melihat ringkasan tempahan dan bayaran bertarikh selepas simpanan disahkan, dan boleh muat turun PDF untuk rujukan.
 
-Kandungan pakej tidak menyertakan salinan data murid, resit, rekod tempahan, token sesi atau metadata Sites. Laman mengambil senarai murid daripada URL CSV yang telah ditetapkan dalam app.js. Mengikut tetapan yang diminta, kata laluan guru Guru1234 dimasukkan dalam HTML dan boleh dilihat melalui sumber laman.
+## Kemas Kini GitHub Pages
 
-## Terbitkan Di GitHub Pages
+1. Ekstrak pakej ZIP.
+2. Di repository tempahanbajusriiarrazi, pilih Add file > Upload files.
+3. Muat naik kandungan pakej pada aras utama repository. Gantikan fail lama: index.html, styles.css, app.js, api.js dan catalog.js. Sertakan receipt.js, bank-islam-qr.jpeg, folder vendor dan folder apps-script. Jangan letakkan index.html dalam subfolder tambahan.
+4. Commit ke branch yang digunakan oleh GitHub Pages. Tunggu penerbitan selesai, kemudian muat semula laman.
 
-1. Ekstrak ZIP ini.
-2. Cipta repository di GitHub. Contoh nama: uniform-sekolah. Untuk akaun GitHub Free, gunakan repository public bagi GitHub Pages.
-3. Pilih Add file > Upload files. Muat naik kandungan folder yang diekstrak, termasuk folder apps-script. Pastikan index.html berada pada aras utama repository, bukan dalam satu lagi subfolder.
-4. Commit fail ke branch main, atau branch utama repository anda.
-5. Pergi ke Settings > Pages.
-6. Pada Source, pilih Deploy from a branch.
-7. Pilih branch main, atau branch yang mengandungi fail tadi, dan folder /(root), kemudian Save.
-8. Tunggu GitHub menerbitkan laman. Buka URL yang GitHub paparkan dalam Settings > Pages.
+Tiada npm atau proses build diperlukan. PDF dijana menggunakan pustaka tempatan dalam vendor/pdf-lib.min.js. Lesen disertakan dalam vendor/LICENSE.md.
 
-Format URL biasa ialah https://NAMA-PENGGUNA.github.io/NAMA-REPOSITORY/. Gantikan contoh tersebut dengan nama akaun dan repository sebenar. Laman GitHub Pages boleh dibuka orang awam; tetapan akses peribadi laman Sites lama tidak dibawa bersama.
+## Kemas Kini Apps Script
 
-Rujukan rasmi: https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site
+1. Buka projek Apps Script untuk URL /exec sedia ada.
+2. Gantikan kandungan Code.gs dengan apps-script/Code.gs dalam pakej ini. Ia lengkap dalam satu fail, termasuk katalog. Pastikan tiada fungsi doGet, doPost atau getUniformProducts yang bertindih.
+3. Simpan perubahan. Jika setup Google Sheet sudah dibuat, tidak perlu memadam atau mencipta semula tab. Untuk pemasangan pertama sahaja, jalankan setup dan benarkan akses Google yang diperlukan.
+4. Deploy > Manage deployments > pilih deployment sedia ada > Edit > Version: New version > Deploy. Kekalkan Execute as: Me dan Who has access: Anyone seperti konfigurasi sedia ada. Tindakan guru tetap memerlukan sesi login pelayan.
+5. Buka URL /exec dan pastikan respons memaparkan version: 6, catalogItems: 18 dan allowedOrigins yang mengandungi https://educreatorsystem.github.io.
+6. Muat semula laman GitHub. Uji login, harga kos satu saiz, satu tempahan sebenar, resit dan kemaskini bayaran.
 
-## Aktifkan Apps Script Untuk Domain GitHub
+Kata laluan kekal Guru1234 dalam HTML dan semakan pelayan. Tiada tetapan TEACHER_PASSWORD diperlukan. Kata laluan HTML boleh dilihat melalui sumber laman.
 
-Code.gs dalam pakej ini menambah sokongan tetapan ALLOWED_ORIGINS agar domain GitHub boleh dibenarkan. Kata laluan guru sudah ditetapkan sebagai Guru1234 dalam HTML dan semakan pelayan; tiada tetapan TEACHER_PASSWORD diperlukan.
+Rujukan deployment rasmi: https://developers.google.com/apps-script/guides/web
 
-1. Buka projek Apps Script yang menggunakan URL /exec sedia ada.
-2. Gantikan kandungan Code.gs dengan apps-script/Code.gs daripada pakej ini. Katalog sudah disertakan; tidak perlu fail Catalog.gs berasingan. Pastikan tiada fungsi doGet, doPost atau getUniformProducts lain yang bertindih.
-3. Klik Project Settings > Script Properties. Tetapkan nilai berikut:
+## Rekod Dan Bayaran
 
-| Property | Value |
-| --- | --- |
-| ALLOWED_ORIGINS | https://NAMA-PENGGUNA.github.io |
+Tekan Kemaskini dalam jadual Bayaran. Jumlah terkumpul diterima bermaksud jumlah keseluruhan diterima selepas kemaskini, bukan amaun bayaran tambahan. Status Selesai bayar mengisi jumlah penuh; Belum bayar mengisi sifar; Bayar sebahagian memerlukan amaun lebih daripada sifar dan kurang daripada jumlah tempahan. Catatan wajib untuk setiap kemaskini.
 
-ALLOWED_ORIGINS mesti mengandungi origin sahaja, tanpa nama repository atau laluan. Contohnya, laman https://nama.github.io/uniform-sekolah/ menggunakan nilai https://nama.github.io. Jika menggunakan domain sendiri, gunakan https://domain-sebenar-anda. Beberapa origin boleh dipisahkan dengan koma. Jangan masukkan tanda petik pada nilai dalam Script Properties.
+Perubahan jumlah direkod sebagai pelarasan bertarikh. Pengurangan menghasilkan amaun negatif untuk pembetulan kutipan mengikut kaedah, tanpa memadam resit asal. Sistem tidak menghantar wang atau refund kepada bank. Semua status dikira daripada jumlah bersih rekod bayaran.
 
-Login Guru menggunakan Guru1234 dengan huruf G besar. Jika menukar kata laluan kemudian, samakan nilai dalam blok teacher-login-config pada index.html dan CONFIG.teacherPassword pada Code.gs. Kata laluan dalam HTML bukan rahsia kepada pelawat laman.
+Kos lama per produk digunakan sebagai nilai awal setiap saiz. Tempahan lama mengekalkan kos pada masa tempahan itu disimpan. Kemaskini kos produk hanya digunakan oleh tempahan baharu.
 
-4. Klik Save script properties.
-5. Pilih fungsi setup, kemudian Run jika anda belum menyediakan tab dan kebenaran Google. Akaun deployment perlu boleh mengedit Google Sheet dan menambah fail ke folder Drive sasaran.
-6. Pilih Deploy > Manage deployments > pilih deployment sedia ada > Edit > Version: New version > Deploy. Gunakan Execute as: Me dan Who has access: Anyone agar borang ibu bapa boleh mengakses API. Tindakan guru tetap memerlukan kata laluan pada backend.
-7. Buka URL /exec. Kod lengkap memaparkan version 4 dan catalogItems 18.
-8. Buka laman GitHub Pages. Cuba satu tempahan dan resit, semak tab Tempahan Uniform / Item Uniform / Bayaran Uniform serta folder Drive, dan cuba login Guru.
+PDF memaparkan snapshot tempahan selepas simpanan berjaya, bersama tarikh Malaysia, saiz, warna, kuantiti, harga, bayaran, baki dan status. PDF bukan pengesahan automatik transaksi bank.
 
-Pemasangan Code.gs baharu memerlukan deployment New version agar semakan pelayan menggunakan Guru1234 tanpa Script Properties. Selepas versi ini aktif, perubahan ALLOWED_ORIGINS sahaja dibaca terus daripada Script Properties dan tidak memerlukan deployment baharu.
+## Konfigurasi Sedia Ada
 
-## URL Dan ID Yang Sudah Ditetapkan
+- Sheet ID: 1_cseyHAdD599a0i9c-1A2BTlYSqDta6MyO95T4fpFz0
+- Folder resit Drive: 1rPIxTL9i_5l0Mf2QnY5EDpasFwCyF4dI
+- URL Apps Script dalam api.js dikekalkan. Jika mencipta deployment dengan URL lain, ubah api.js dan terbitkan semula frontend.
+- Domain GitHub sebenar sudah dibenarkan dalam Code.gs. ALLOWED_ORIGINS hanya diperlukan untuk domain tambahan.
+- Tiada nombor kad pengenalan murid atau telefon penjaga dipaparkan.
 
-- URL Apps Script sedia ada berada dalam api.js. Jika menggunakan deployment baharu dengan URL berbeza, ubah form.action di api.js, kemudian commit perubahan ke GitHub.
-- Sheet ID dalam Code.gs: 1_cseyHAdD599a0i9c-1A2BTlYSqDta6MyO95T4fpFz0.
-- Folder Drive dalam Code.gs: 1rPIxTL9i_5l0Mf2QnY5EDpasFwCyF4dI.
-- Sumber murid: URL CSV sedia ada dalam app.js dan Code.gs.
+Data tempahan dan resit sebenar tidak disertakan dalam pakej. Data disimpan di Google Sheet/Drive yang ditetapkan. Jangan edit atau padam lajur Data JSON dan struktur tab sedia ada.
 
-ID dan URL di atas ialah konfigurasi sambungan, bukan kebenaran mengakses akaun Google.
+## Pengesahan
 
-## Semak Masalah
+Ujian setempat lulus bagi kos setiap saiz, rekod kos lama, pengiraan wang, tiga status bayaran, pelarasan tunai/QR, pengesahan guru, penolakan suntingan lapuk, percubaan semula tanpa pendua, resit dan PDF berbilang halaman. Paparan telefon dan desktop diperiksa dengan rekod contoh sahaja, tanpa menulis rekod ujian ke Google anda.
 
-| Mesej / keadaan | Tindakan |
-| --- | --- |
-| Asal laman tidak dibenarkan | Semak ALLOWED_ORIGINS menggunakan domain GitHub tanpa laluan repository dan pastikan Code.gs pakej ini sudah dideploy |
-| Kata laluan guru belum ditetapkan | Deployment masih menggunakan kod lama. Gunakan Code.gs baharu dan deploy New version; tidak perlu TEACHER_PASSWORD |
-| getUniformProducts is not defined | Gunakan keseluruhan Code.gs satu fail dan deploy New version |
-| Tiada pengesahan diterima | Semak URL api.js, kebenaran web app dan deployment /exec |
-| Laman 404 | Pastikan index.html pada root dan Pages menggunakan branch / folder yang betul |
-
-Laman ini merekod nilai bayaran dan resit; ia tidak mengesahkan transaksi secara automatik dengan bank. Fungsi simpanan bergantung pada Apps Script yang aktif dan kebenaran akaun Google yang menjalankannya. Pakej ini menyediakan fail untuk diterbitkan; ia tidak mencipta repository atau deployment GitHub secara automatik.
+Pakej ini tidak menerbitkan GitHub atau memasang Apps Script secara automatik. Simpanan sebenar memerlukan Code.gs versi 6 dideploy dengan kebenaran Google yang betul. Panduan tambahan: apps-script/PANDUAN.md.

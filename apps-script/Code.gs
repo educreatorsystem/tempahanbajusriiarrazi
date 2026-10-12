@@ -44,7 +44,7 @@ const CONFIG = {
   sheetId: '1_cseyHAdD599a0i9c-1A2BTlYSqDta6MyO95T4fpFz0',
   folderId: '1rPIxTL9i_5l0Mf2QnY5EDpasFwCyF4dI',
   studentCsv: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTf_wvpFNZYigSd2tIkt_pTUEaMxx0-dgkNqVDPJoSzHuikVWIu9TKiGPIEpTtIrcElxy5GI1WfIKJM/pub?gid=0&single=true&output=csv',
-  origins: ['https://uniform-ar-razi-meru-2-2026.g-52033830.chatgpt.site'],
+  origins: ['https://uniform-ar-razi-meru-2-2026.g-52033830.chatgpt.site', 'https://educreatorsystem.github.io'],
   orders: 'Tempahan Uniform', items: 'Item Uniform', payments: 'Bayaran Uniform', products: 'Produk Uniform'
 };
 
@@ -63,7 +63,7 @@ function setup() {
 }
 
 function doGet() {
-  return ContentService.createTextOutput(JSON.stringify({ ok: true, service: 'uniform-api-v1', version: 4, catalogItems: getUniformProducts().length }))
+  return ContentService.createTextOutput(JSON.stringify({ ok: true, service: 'uniform-api-v1', version: 6, catalogItems: getUniformProducts().length, allowedOrigins: allowedOrigins_() }))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
@@ -82,7 +82,7 @@ function doPost(e) {
   }
   message.channel = 'uniform-api-v1';
   message.requestId = String(request.requestId || '');
-  const target = origins.includes(request.origin) ? request.origin : CONFIG.origins[0];
+  const target = /^https:\/\/[a-zA-Z0-9.-]+(?::\d+)?$/.test(request.origin || '') ? request.origin : CONFIG.origins[0];
   // Escape script delimiters before embedding submitted text in the response.
   const json = JSON.stringify(message).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
   return HtmlService.createHtmlOutput('<!doctype html><meta charset="utf-8"><script>window.top.postMessage(' + json + ',' + JSON.stringify(target) + ');</script>')
@@ -99,7 +99,7 @@ function dispatch_(request) {
   const payload = request.payload || {};
   if (action === 'login') return login_(payload.password);
   if (action === 'catalog') return products_(SpreadsheetApp.openById(CONFIG.sheetId));
-  const admin = ['listOrders','saveProduct','addPayment','setDelivery'].includes(action) ||
+  const admin = ['listOrders','saveProduct','addPayment','setPaymentStatus','setDelivery'].includes(action) ||
     (action === 'saveOrder' && payload.order && payload.order.source === 'Borang manual');
   if (admin) authorize_(request.token);
   const lock = LockService.getScriptLock();
@@ -109,7 +109,7 @@ function dispatch_(request) {
     if (action === 'listOrders') return orders_(db).map(row => row.order).sort((a,b) => b.createdAt.localeCompare(a.createdAt));
     if (action === 'saveProduct') return saveProduct_(db, payload);
     if (action === 'saveOrder') return saveOrder_(db, payload.order, Boolean(request.token && admin));
-    if (action === 'addPayment' || action === 'setDelivery') {
+    if (action === 'addPayment' || action === 'setPaymentStatus' || action === 'setDelivery') {
       const entry = orders_(db).find(row => row.order.id === payload.orderId);
       if (!entry) throw new Error('Tempahan tidak ditemui.');
       const order = entry.order;
@@ -119,6 +119,8 @@ function dispatch_(request) {
           if (paid_(order) + payment.amount > order.total) throw new Error('Jumlah bayaran melebihi baki tempahan.');
           order.payments.push(uploadReceipt_(payment));
         }
+      } else if (action === 'setPaymentStatus') {
+        updatePaymentStatus_(order, payload);
       } else {
         if (!Number.isInteger(payload.index) || !order.items[payload.index] || typeof payload.delivered !== 'boolean') throw new Error('Item serahan tidak sah.');
         order.items[payload.index].delivered = payload.delivered;
@@ -160,6 +162,7 @@ function products_(db) {
   return getUniformProducts().map(product => {
     const row = overrides.find(row => row[0] === product.id);
     if (row) Object.assign(product, JSON.parse(row[1]));
+    product.sizeCosts = Object.fromEntries(product.sizes.map(size => [size, product.sizeCosts && product.sizeCosts[size] != null ? product.sizeCosts[size] : product.cost || 0]));
     return product;
   });
 }
@@ -167,12 +170,15 @@ function products_(db) {
 function saveProduct_(db, payload) {
   const product = getUniformProducts().find(item => item.id === payload.id);
   if (!product) throw new Error('Produk tidak sah.');
-  const sizePrices = {};
-  product.sizes.forEach(size => { sizePrices[size] = amount_(payload.sizePrices && payload.sizePrices[size]); });
+  const sizePrices = {}, sizeCosts = {};
+  product.sizes.forEach(size => {
+    sizePrices[size] = amount_(payload.sizePrices && payload.sizePrices[size]);
+    sizeCosts[size] = amount_(payload.sizeCosts ? payload.sizeCosts[size] : payload.cost);
+  });
   const sheet = tab_(db,'products');
   const rows = sheet.getLastRow() > 1 ? sheet.getRange(2,1,sheet.getLastRow()-1,1).getValues() : [];
   const index = rows.findIndex(row => row[0] === product.id);
-  const data = JSON.stringify({ sizePrices, cost: amount_(payload.cost) });
+  const data = JSON.stringify({ sizePrices, sizeCosts });
   sheet.getRange(index < 0 ? sheet.getLastRow()+1 : index+2,1,1,2).setValues([[product.id,data]]);
   return products_(db);
 }
@@ -203,7 +209,7 @@ function saveOrder_(db, input, admin) {
     if (!Number.isInteger(item.qty) || item.qty < 1 || item.qty > 99) throw new Error('Kuantiti mestilah 1 hingga 99.');
     const color = String(item.color || '');
     if ((p.colors.length && !p.colors.includes(color)) || (!p.colors.length && color)) throw new Error('Warna tidak sah.');
-    return { productId: p.id, name: p.name, category: p.category, size: String(item.size), color, qty: item.qty, price: p.sizePrices[item.size], cost: p.cost, delivered: false };
+    return { productId: p.id, name: p.name, category: p.category, size: String(item.size), color, qty: item.qty, price: p.sizePrices[item.size], cost: p.sizeCosts[item.size], delivered: false };
   });
   const order = { id: input.id, source: admin ? 'Borang manual' : 'Ibu bapa', createdAt: new Date().toISOString(), student, year: String(year), className: student.className,
     gender: input.gender, items, total: Math.round(items.reduce((sum,item) => sum + Math.round(item.price*100) * item.qty,0))/100,
@@ -274,6 +280,40 @@ function replaceRows_(sheet,id,rows) {
     for (let index=ids.length-1; index>=0; index--) if (ids[index][0] === id) sheet.deleteRow(index+2);
   }
   if (rows.length) sheet.getRange(sheet.getLastRow()+1,1,rows.length,rows[0].length).setValues(rows.map(row => row.map(cell_)));
+}
+
+function updatePaymentStatus_(order, payload) {
+  if (!/^[a-zA-Z0-9-]{10,80}$/.test(payload.updateId || '')) throw new Error('ID kemaskini tidak sah.');
+  order.paymentUpdates = order.paymentUpdates || [];
+  if (order.paymentUpdates.some(update => update.id === payload.updateId)) return;
+  const received = amount_(payload.received);
+  const status = received === 0 ? 'Belum bayar' : received < order.total ? 'Bayar sebahagian' : 'Selesai bayar';
+  if (received > order.total || payload.status !== status) throw new Error('Status tidak sepadan dengan jumlah bayaran diterima.');
+  if (!['Tunai','QR'].includes(payload.method)) throw new Error('Kaedah bayaran tidak sah.');
+  const before = paid_(order);
+  if (amount_(payload.expectedPaid) !== before) throw new Error('Bayaran telah berubah. Muat semula rekod sebelum kemaskini.');
+  const note = text_(payload.note,500);
+  if (!note) throw new Error('Catatan kemaskini diperlukan.');
+  const date = new Date().toISOString();
+  const delta = Math.round(received*100) - Math.round(before*100);
+  const adjustments = [];
+  if (delta > 0) adjustments.push({ method: payload.method, amount: delta/100 });
+  if (delta < 0) {
+    let remaining = -delta;
+    // Reverse within each method's recorded balance, preserving the original receipts.
+    [payload.method, payload.method === 'Tunai' ? 'QR' : 'Tunai'].forEach(method => {
+      const available = order.payments.filter(p => p.method === method).reduce((sum,p) => sum+Math.round(p.amount*100),0);
+      const reversed = Math.min(remaining, available);
+      if (reversed > 0) adjustments.push({ method, amount: -reversed/100 });
+      remaining -= reversed;
+    });
+    if (remaining) throw new Error('Rekod bayaran tidak seimbang.');
+  }
+  adjustments.forEach((adjustment,index) => order.payments.push({
+    id: payload.updateId + '-' + index, date, amount: adjustment.amount, method: adjustment.method,
+    type: 'Pelarasan guru', note, receiptName: '', receiptUrl: ''
+  }));
+  order.paymentUpdates.push({ id: payload.updateId, date, before, received, status, note });
 }
 
 function paid_(order) { return order.payments.reduce((sum,p) => sum+Math.round(p.amount*100),0)/100; }

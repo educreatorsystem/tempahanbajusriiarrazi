@@ -8,7 +8,7 @@
       name="description"
       content="Sistem tempahan, bayaran, dan pemantauan penyerahan uniform sekolah."
     />
-    <link rel="stylesheet" href="./styles.css?v=4" />
+    <link rel="stylesheet" href="./styles.css?v=6" />
   </head>
   <body>
     <div class="shell">
@@ -167,6 +167,17 @@
               </form>
             </section>
           </div>
+
+        <section id="parent-confirmation" hidden aria-labelledby="confirmation-heading">
+          <div class="confirmation-head">
+            <div><span class="label">Tempahan berjaya disimpan</span><h3 id="confirmation-heading">Ringkasan tempahan dan bayaran</h3></div>
+            <div class="top-actions">
+              <button id="download-receipt" class="primary-button"><span data-icon="download"></span>Simpan PDF</button>
+              <button id="new-parent-order" class="ghost-button">Tempahan baharu</button>
+            </div>
+          </div>
+          <div id="confirmation-content"></div>
+        </section>
         </section>
 
         <section id="admin-view" class="view">
@@ -200,14 +211,7 @@
 
             <section class="admin-tab active-admin-tab" id="tab-dashboard">
               <div class="metrics" id="metrics"></div>
-              <div class="two-col">
-                <div class="panel">
-                  <div class="panel-head">
-                    <h3>Tempahan terkini</h3>
-                    <span class="pill muted" id="recent-count">0 rekod</span>
-                  </div>
-                  <div id="recent-orders" class="stack"></div>
-                </div>
+              <div>
                 <div class="panel">
                   <div class="panel-head">
                     <h3>Ringkasan status</h3>
@@ -232,7 +236,7 @@
                         <th>Produk</th>
                         <th>Kategori</th>
                         <th>Harga jualan / saiz</th>
-                        <th>Harga kos</th>
+                        <th>Harga kos / saiz</th>
                         <th>Saiz</th>
                         <th></th>
                       </tr>
@@ -282,7 +286,16 @@
                     <h3>Kemaskini bayaran</h3>
                   </div>
                 </div>
-                <div id="payment-records" class="stack"></div>
+                <div class="payment-filters">
+                  <div class="field"><label for="payment-search">Nama murid</label><input id="payment-search" type="search" placeholder="Cari nama murid" /></div>
+                  <div class="field"><label for="payment-class">Kelas</label><select id="payment-class"><option value="">Semua kelas</option></select></div>
+                  <div class="field"><label for="payment-item">Item</label><select id="payment-item"><option value="">Semua item</option></select></div>
+                  <div class="field"><label for="payment-status-filter">Status bayaran</label><select id="payment-status-filter"><option value="">Semua status</option><option>Belum bayar</option><option>Bayar sebahagian</option><option>Selesai bayar</option></select></div>
+                </div>
+                <div id="payment-summary" class="payment-summary" aria-live="polite"></div>
+                <div class="table-wrap">
+                  <table class="payments-table"><thead><tr><th>Murid / kelas / tarikh</th><th>Item tempahan</th><th class="number">Jumlah</th><th class="number">Diterima</th><th class="number">Baki</th><th>Status</th><th></th></tr></thead><tbody id="payment-records"></tbody></table>
+                </div>
               </div>
             </section>
 
@@ -361,10 +374,28 @@
       </main>
     </div>
 
+    <dialog id="payment-editor" aria-labelledby="payment-editor-heading">
+      <form id="payment-editor-form">
+        <div class="dialog-head"><h3 id="payment-editor-heading">Kemaskini bayaran</h3><button id="close-payment-editor" class="ghost-button" type="button" aria-label="Tutup">Tutup</button></div>
+        <div id="payment-editor-student"></div>
+        <div class="form-grid">
+          <div class="field"><label for="edit-payment-status">Status bayaran</label><select id="edit-payment-status"><option>Belum bayar</option><option>Bayar sebahagian</option><option>Selesai bayar</option></select></div>
+          <div class="field"><label for="edit-payment-received">Jumlah terkumpul diterima (RM)</label><input id="edit-payment-received" type="number" min="0" step="0.01" required /></div>
+          <div class="field"><label for="edit-payment-method">Kaedah pelarasan</label><select id="edit-payment-method"><option value="Tunai">Tunai</option><option value="QR">Transfer / QR</option></select></div>
+          <div class="field"><label for="edit-payment-note">Catatan kemaskini</label><input id="edit-payment-note" maxlength="500" required /></div>
+        </div>
+        <p id="payment-editor-balance"></p>
+        <p id="payment-editor-error" class="form-error" role="alert" hidden></p>
+        <button class="primary-button" id="save-payment-status" type="submit"><span data-icon="save"></span>Simpan bayaran</button>
+        <h4>Sejarah bayaran</h4><div id="payment-history"></div>
+      </form>
+    </dialog>
     <template id="icon-template"></template>
     <script id="teacher-login-config" type="application/json">{"password":"Guru1234"}</script>
-    <script src="./catalog.js?v=4"></script>
-    <script src="./api.js?v=4"></script>
-    <script src="./app.js?v=4" type="module"></script>
+    <script src="./catalog.js?v=6"></script>
+    <script src="./api.js?v=6"></script>
+    <script src="./vendor/pdf-lib.min.js"></script>
+    <script src="./receipt.js?v=6"></script>
+    <script src="./app.js?v=6" type="module"></script>
   </body>
 </html>

@@ -19,6 +19,9 @@ const state = {
   adminToken: '',
   pendingOrder: null,
   pendingManualOrder: null,
+  confirmedOrder: null,
+  editingPayment: null,
+  pendingPaymentUpdate: null,
 };
 
 const el = (selector) => document.querySelector(selector);
@@ -46,7 +49,11 @@ function boot() {
   bindGlobalEvents();
   loadStudents();
   uniformRequest('catalog').then(products => {
-    state.products = products; el('#save-status').hidden = true; renderAll();
+    state.products = products;
+    const ready = supportsSizeCosts();
+    el('#save-status').hidden = ready;
+    if (!ready) el('#save-status').textContent = 'Tetapan kos saiz dan kemaskini bayaran guru memerlukan Apps Script versi 6.';
+    renderAll();
   }).catch(() => {
     el('#save-status').textContent = 'Simpanan tempahan belum tersedia. Sila hubungi pihak sekolah.';
     el('#save-status').hidden = false;
@@ -169,6 +176,28 @@ function showNotice(message) {
 }
 
 function bindGlobalEvents() {
+  el('#download-receipt').addEventListener('click', downloadReceipt);
+  el('#new-parent-order').addEventListener('click', () => {
+    state.confirmedOrder = null; state.selectedStudent = null;
+    el('#parent-confirmation').hidden = true; el('.parent-layout').hidden = false;
+    el('#page-title').textContent = 'Borang Tempahan Ibu Bapa';
+    el('#student-search').value = ''; renderStudents(); renderSelectedStudent(); renderProducts();
+  });
+  ['#payment-search','#payment-class','#payment-item','#payment-status-filter'].forEach(selector => el(selector).addEventListener('input', renderPaymentRecords));
+  el('#close-payment-editor').addEventListener('click', () => el('#payment-editor').close());
+  el('#payment-editor-form').addEventListener('submit', savePaymentStatus);
+  el('#payment-editor').addEventListener('cancel', event => { if (el('#save-payment-status').disabled) event.preventDefault(); });
+  el('#payment-editor-form').addEventListener('input', () => { state.pendingPaymentUpdate = null; });
+  el('#edit-payment-status').addEventListener('change', () => {
+    const status = el('#edit-payment-status').value;
+    const input = el('#edit-payment-received');
+    if (status === 'Belum bayar') input.value = '0.00';
+    if (status === 'Selesai bayar') input.value = state.editingPayment.total.toFixed(2);
+    if (status === 'Bayar sebahagian' && (Number(input.value) <= 0 || Number(input.value) >= state.editingPayment.total)) input.value = '';
+    input.readOnly = status !== 'Bayar sebahagian';
+    renderPaymentEditorBalance();
+  });
+  el('#edit-payment-received').addEventListener('input', renderPaymentEditorBalance);
   el('#copy-account').addEventListener('click', copyBankAccount);
   els(".nav-button").forEach((button) => {
     button.addEventListener("click", () => switchMainView(button.dataset.view));
@@ -235,7 +264,7 @@ function switchMainView(view) {
   els(".view").forEach((panel) => panel.classList.remove("active-view"));
   el(`#${view}-view`).classList.add("active-view");
   el("#page-title").textContent =
-    view === "parent" ? "Borang Tempahan Ibu Bapa" : "Pemantauan Guru";
+    view === "parent" ? (state.confirmedOrder ? 'Ringkasan tempahan' : 'Borang Tempahan Ibu Bapa') : "Pemantauan Guru";
 }
 
 function switchAdminTab(tab) {
@@ -386,7 +415,7 @@ function getCartItems(cart) {
     if (!product || !line.qty) return null;
     return { productId, name: product.name, category: product.category, size: line.size,
       color: line.color || '', qty: Number(line.qty), price: unitPrice(product, line.size),
-      cost: Number(product.cost), delivered: false };
+      cost: Number(product.sizeCosts?.[line.size] ?? product.cost ?? 0), delivered: false };
   }).filter(Boolean);
 }
 
@@ -458,7 +487,8 @@ async function saveParentOrder(event) {
   state.pendingOrder.gender = el('#uniform-gender').value;
   try {
     const saved = await uniformRequest('saveOrder', { order: state.pendingOrder });
-    if (state.adminLoggedIn) state.orders.unshift(saved);
+    if (state.adminLoggedIn) state.orders = [saved, ...state.orders.filter(item => item.id !== saved.id)];
+    state.confirmedOrder = saved;
     state.pendingOrder = null;
   } catch (error) {
     alert(error.message); return;
@@ -468,7 +498,7 @@ async function saveParentOrder(event) {
   renderProducts();
   renderCartSummary();
   renderAll();
-  alert("Tempahan berjaya dihantar.");
+  renderParentConfirmation();
 }
 
 function createOrder({ source, student, items, payerName = "", payerPhone = "", note = "", payment = null }) {
@@ -553,12 +583,6 @@ function renderDashboard() {
     )
     .join("");
 
-  const recent = state.orders.slice(0, 5);
-  el("#recent-count").textContent = `${recent.length} rekod`;
-  el("#recent-orders").innerHTML = recent.length
-    ? recent.map(renderRecordCard).join("")
-    : '<div class="empty">Belum ada tempahan direkodkan.</div>';
-
   const statusCounts = countBy(state.orders, (order) => paymentStatus(order));
   const max = Math.max(1, ...Object.values(statusCounts));
   el("#status-breakdown").innerHTML = ["Belum bayar", "Bayar sebahagian", "Selesai bayar"]
@@ -600,17 +624,18 @@ function renderProductTable() {
       <td>${escapeHtml(product.name)}<br><small>${escapeHtml(product.gender)} / Tahun ${product.years.join(', ')}</small></td>
       <td>${escapeHtml(product.category)}</td>
       <td>${product.sizes.map(size => `<label class="size-price-row">${escapeHtml(size)}<input data-price-size="${escapeAttr(size)}" type="number" min="0" step="0.01" value="${product.sizePrices[size]}" aria-label="Harga ${escapeAttr(product.name)} saiz ${escapeAttr(size)}" /></label>`).join('')}</td>
-      <td><input data-cost type="number" min="0" step="0.01" value="${product.cost}" aria-label="Harga kos ${escapeAttr(product.name)}" /></td>
+      <td>${product.sizes.map(size => `<label class="size-price-row">${escapeHtml(size)}<input data-cost-size="${escapeAttr(size)}" type="number" min="0" step="0.01" value="${product.sizeCosts?.[size] ?? product.cost ?? 0}" aria-label="Harga kos ${escapeAttr(product.name)} saiz ${escapeAttr(size)}" /></label>`).join('')}</td>
       <td>${escapeHtml(product.sizes.join(', '))}</td>
-      <td><button class="ghost-button" data-save-price>Simpan</button></td>
+      <td><button class="ghost-button" data-save-price ${supportsSizeCosts() ? '' : 'disabled title="Kemas kini Apps Script kepada versi 6"'}>Simpan</button></td>
     </tr>`).join('');
   el('#product-table').querySelectorAll('[data-save-price]').forEach(button => button.addEventListener('click', async () => {
     const row = button.closest('[data-product-row]');
     const sizePrices = Object.fromEntries([...row.querySelectorAll('[data-price-size]')].map(input => [input.dataset.priceSize, Number(input.value)]));
-    if (Object.values(sizePrices).some(price => !Number.isFinite(price) || price < 0)) { alert('Harga tidak sah.'); return; }
+    const sizeCosts = Object.fromEntries([...row.querySelectorAll('[data-cost-size]')].map(input => [input.dataset.costSize, Number(input.value)]));
+    if ([...row.querySelectorAll('input')].some(input => !input.value.trim() || !input.checkValidity()) || [...Object.values(sizePrices),...Object.values(sizeCosts)].some(price => !Number.isFinite(price) || price < 0)) { alert('Harga tidak sah.'); return; }
     button.disabled = true;
     try {
-      state.products = await uniformRequest('saveProduct', { id: row.dataset.productRow, sizePrices, cost: Number(row.querySelector('[data-cost]').value) }, state.adminToken);
+      state.products = await uniformRequest('saveProduct', { id: row.dataset.productRow, sizePrices, sizeCosts }, state.adminToken);
       renderAll();
     } catch (error) { alert(error.message); }
     finally { button.disabled = false; }
@@ -651,71 +676,103 @@ async function saveManualOrder() {
 }
 
 function renderPaymentRecords() {
-  const target = el("#payment-records");
-  if (!state.orders.length) {
-    target.innerHTML = '<div class="empty">Belum ada rekod tempahan.</div>';
-    return;
+  const fillOptions = (selector, values, label) => {
+    const select = el(selector), previous = select.value;
+    select.innerHTML = `<option value="">${label}</option>` + values.map(value => `<option value="${escapeAttr(value)}">${escapeHtml(value)}</option>`).join('');
+    if (values.includes(previous)) select.value = previous;
+  };
+  fillOptions('#payment-class', unique(state.orders.map(order => order.className)).sort(), 'Semua kelas');
+  fillOptions('#payment-item', unique(state.orders.flatMap(order => order.items.map(item => item.name))).sort(), 'Semua item');
+  const search = el('#payment-search').value.trim().toLowerCase();
+  const orders = state.orders.filter(order => order.student.name.toLowerCase().includes(search)
+    && (!el('#payment-class').value || order.className === el('#payment-class').value)
+    && (!el('#payment-item').value || order.items.some(item => item.name === el('#payment-item').value))
+    && (!el('#payment-status-filter').value || paymentStatus(order) === el('#payment-status-filter').value));
+  const totals = calculateTotals(orders);
+  el('#payment-summary').innerHTML = `<strong>${orders.length} tempahan</strong><span>Jumlah: ${money(totals.orderValue)}</span><span>Diterima: ${money(totals.totalPaid)}</span><span>Baki: ${money(totals.balance)}</span>`;
+  el('#payment-records').innerHTML = orders.length ? orders.map(order => `
+    <tr>
+      <td><strong>${escapeHtml(order.student.name)}</strong><small class="cell-detail">${escapeHtml(order.className)}<br>${escapeHtml(formatDate(order.createdAt))}</small></td>
+      <td class="payment-items">${order.items.map(item => `<div>${escapeHtml(item.name)} <small>${escapeHtml(item.size)}${item.color ? ' / '+escapeHtml(item.color) : ''} &times; ${item.qty}</small></div>`).join('')}</td>
+      <td class="number">${money(order.total)}</td><td class="number">${money(paidAmount(order))}</td><td class="number">${money(order.total-paidAmount(order))}</td>
+      <td><span class="status ${statusClass(paymentStatus(order))}">${paymentStatus(order)}</span></td>
+      <td><button class="ghost-button" data-edit-payment="${escapeAttr(order.id)}" aria-label="Kemaskini bayaran ${escapeAttr(order.student.name)}" ${supportsSizeCosts() ? '' : 'disabled title="Kemas kini Apps Script kepada versi 6"'}>Kemaskini</button></td>
+    </tr>`).join('') : '<tr><td colspan="7" class="empty">Tiada rekod bayaran sepadan.</td></tr>';
+  els('[data-edit-payment]').forEach(button => button.addEventListener('click', () => openPaymentEditor(button.dataset.editPayment)));
+}
+
+function openPaymentEditor(id) {
+  const order = state.orders.find(order => order.id === id);
+  state.editingPayment = structuredClone(order); state.pendingPaymentUpdate = null;
+  el('#payment-editor-form').reset(); el('#payment-editor-error').hidden = true;
+  el('#payment-editor-student').innerHTML = `<strong>${escapeHtml(order.student.name)}</strong><p>${escapeHtml(order.className)} &middot; Jumlah tempahan: ${money(order.total)}</p>`;
+  el('#edit-payment-status').value = paymentStatus(order);
+  el('#edit-payment-received').value = paidAmount(order).toFixed(2);
+  el('#edit-payment-received').max = order.total;
+  el('#edit-payment-received').readOnly = paymentStatus(order) !== 'Bayar sebahagian';
+  el('#payment-history').innerHTML = paymentHistoryHtml(order);
+  renderPaymentEditorBalance();
+  el('#payment-editor').showModal();
+}
+
+function supportsSizeCosts() {
+  return state.products.length > 0 && state.products.every(product => product.sizeCosts && product.sizes.every(size => Number.isFinite(product.sizeCosts[size])));
+}
+
+function paymentHistoryHtml(order) {
+  return order.payments.length ? `<div class="table-wrap"><table class="history-table"><thead><tr><th>Tarikh</th><th>Kaedah</th><th class="number">Amaun</th><th>Resit / catatan</th></tr></thead><tbody>${order.payments.map(payment => `<tr><td>${escapeHtml(formatDate(payment.date))}</td><td>${escapeHtml(payment.method)}${payment.type ? '<small class="cell-detail">'+escapeHtml(payment.type)+'</small>' : ''}</td><td class="number">${money(payment.amount)}</td><td>${payment.receiptUrl ? `<a href="${escapeAttr(payment.receiptUrl)}" target="_blank" rel="noopener">Lihat resit</a>` : ''}${payment.note ? `<span class="cell-detail">${escapeHtml(payment.note)}</span>` : ''}</td></tr>`).join('')}</tbody></table></div>` : '<p class="empty">Belum ada bayaran diterima.</p>';
+}
+
+function renderPaymentEditorBalance() {
+  const order = state.editingPayment;
+  el('#payment-editor-balance').textContent = `Diterima sekarang: ${money(paidAmount(order))} | Baki selepas kemaskini: ${money(order.total-Number(el('#edit-payment-received').value))}`;
+}
+
+async function savePaymentStatus(event) {
+  event.preventDefault();
+  const order = state.editingPayment, received = Number(el('#edit-payment-received').value);
+  const status = received === 0 ? 'Belum bayar' : received < order.total ? 'Bayar sebahagian' : 'Selesai bayar';
+  const errorBox = el('#payment-editor-error'); errorBox.hidden = true;
+  if (!Number.isFinite(received) || received < 0 || received > order.total || status !== el('#edit-payment-status').value) {
+    errorBox.textContent = 'Jumlah diterima mesti sepadan dengan status bayaran.'; errorBox.hidden = false; return;
   }
-  target.innerHTML = state.orders
-    .map((order) => {
-      const paid = paidAmount(order);
-      const balance = Math.max(0, order.total - paid);
-      return `
-        <article class="record-card" data-payment-order="${escapeAttr(order.id)}">
-          <div class="record-head">
-            <div>
-              <strong>${escapeHtml(order.student.name)}</strong>
-              <div class="student-meta">
-                <span>${escapeHtml(order.className)}</span>
-                <span>Jumlah: ${money(order.total)}</span>
-                <span>Dibayar: ${money(paid)}</span>
-                <span>Baki: ${money(balance)}</span>
-              </div>
-            </div>
-            <span class="status ${statusClass(paymentStatus(order))}">${paymentStatus(order)}</span>
-          </div>
-          ${order.payments.filter(p => p.receiptUrl).map(p => `<a href="${escapeAttr(p.receiptUrl)}" target="_blank" rel="noopener">Lihat resit ${escapeHtml(p.receiptName || '')}</a>`).join('')}
-          <div class="record-actions">
-            <input type="number" min="0" step="0.01" placeholder="Jumlah bayaran" data-pay-amount />
-            <select data-pay-method>
-              <option value="QR">Transfer akaun bank / QR</option>
-              <option value="Tunai">Tunai</option>
-            </select>
-            <button class="ghost-button" data-add-payment="${escapeAttr(order.id)}">Tambah bayaran</button>
-          </div>
-        </article>
-      `;
-    })
-    .join("");
-  target.querySelectorAll("[data-add-payment]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const card = button.closest("[data-payment-order]");
-      const amount = Number(card.querySelector("[data-pay-amount]").value) || 0;
-      const method = card.querySelector("[data-pay-method]").value;
-      if (amount <= 0) {
-        alert("Masukkan jumlah bayaran yang sah.");
-        return;
-      }
-      const order = state.orders.find((item) => item.id === button.dataset.addPayment);
-      const payment = {
-        id: button.dataset.paymentId || crypto.randomUUID(),
-        date: new Date().toISOString(),
-        amount,
-        method,
-        receiptName: "",
-        receiptData: "",
-        driveFolderId: DRIVE_FOLDER_ID,
-      };
-      button.dataset.paymentId = payment.id;
-      button.disabled = true;
-      try {
-        const saved = await uniformRequest('addPayment', { orderId: order.id, payment }, state.adminToken);
-        state.orders = state.orders.map(item => item.id === saved.id ? saved : item);
-      } catch (error) { alert(error.message); return; }
-      finally { button.disabled = false; }
-      renderAll();
-    });
-  });
+  state.pendingPaymentUpdate ||= { orderId: order.id, updateId: crypto.randomUUID(), expectedPaid: paidAmount(order), received, status,
+    method: el('#edit-payment-method').value, note: el('#edit-payment-note').value.trim() };
+  const controls = els('#payment-editor-form input, #payment-editor-form select, #payment-editor-form button');
+  controls.forEach(control => { control.disabled = true; });
+  try {
+    const saved = await uniformRequest('setPaymentStatus', state.pendingPaymentUpdate, state.adminToken);
+    state.orders = state.orders.map(order => order.id === saved.id ? saved : order);
+    state.pendingPaymentUpdate = null; el('#payment-editor').close(); renderAll();
+  } catch (error) { errorBox.textContent = error.message; errorBox.hidden = false; }
+  finally { controls.forEach(control => { control.disabled = false; }); }
+}
+
+function renderParentConfirmation() {
+  const order = state.confirmedOrder;
+  el('.parent-layout').hidden = true;
+  el('#parent-confirmation').hidden = false;
+  el('#page-title').textContent = 'Ringkasan tempahan';
+  el('#confirmation-content').innerHTML = `
+    <dl class="confirmation-meta"><div><dt>Nama murid</dt><dd>${escapeHtml(order.student.name)}</dd></div><div><dt>Tahun / kelas</dt><dd>Tahun ${escapeHtml(order.year)} / ${escapeHtml(order.className)}</dd></div><div><dt>Tarikh tempahan</dt><dd>${escapeHtml(formatDate(order.createdAt))}</dd></div><div><dt>No. tempahan</dt><dd>${escapeHtml(order.id)}</dd></div><div><dt>Nama pembayar</dt><dd>${escapeHtml(order.payerName)}</dd></div></dl>
+    <h4>Senarai tempahan</h4><div class="table-wrap"><table class="confirmation-table"><thead><tr><th>Item</th><th>Warna / saiz</th><th class="number">Kuantiti</th><th class="number">Harga seunit</th><th class="number">Jumlah</th></tr></thead><tbody>${order.items.map(item => `<tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.color || '-')} / ${escapeHtml(item.size)}</td><td class="number">${item.qty}</td><td class="number">${money(item.price)}</td><td class="number">${money(item.price*item.qty)}</td></tr>`).join('')}</tbody></table></div>
+    <div class="confirmation-totals"><div>Jumlah tempahan<strong>${money(order.total)}</strong></div><div>Bayaran diterima<strong>${money(paidAmount(order))}</strong></div><div>Baki bayaran<strong>${money(order.total-paidAmount(order))}</strong></div><div>Status bayaran<span class="status ${statusClass(paymentStatus(order))}">${paymentStatus(order)}</span></div></div>
+    <h4>Rekod bayaran</h4>${paymentHistoryHtml(order)}
+    ${order.note ? `<h4>Catatan</h4><p class="order-note">${escapeHtml(order.note)}</p>` : ''}`;
+  el('#parent-confirmation').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function downloadReceipt() {
+  const button = el('#download-receipt'); button.disabled = true;
+  try {
+    const bytes = await createUniformReceiptPdf(state.confirmedOrder);
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+    const link = document.createElement('a'); link.href = url;
+    link.download = `tempahan-uniform-${state.confirmedOrder.id}.pdf`;
+    document.body.append(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch { alert('PDF tidak dapat dijana. Sila cuba semula.'); }
+  finally { button.disabled = false; }
 }
 
 function renderOrdersTable() {
@@ -944,6 +1001,7 @@ function formatDate(value) {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: 'Asia/Kuala_Lumpur',
   }).format(new Date(value));
 }
 
