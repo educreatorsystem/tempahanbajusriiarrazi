@@ -22,6 +22,12 @@ const state = {
   confirmedOrder: null,
   editingPayment: null,
   pendingPaymentUpdate: null,
+  manualSuggestions: [],
+  manualSuggestionIndex: -1,
+  orderEditingReady: false,
+  orderDraft: [],
+  pendingOrderUpdate: null,
+  editorBusy: false,
 };
 
 const el = (selector) => document.querySelector(selector);
@@ -54,10 +60,15 @@ function boot() {
     el('#save-status').hidden = ready;
     if (!ready) el('#save-status').textContent = 'Tetapan kos saiz dan kemaskini bayaran guru memerlukan Apps Script versi 6.';
     renderAll();
+    if (state.editingPayment && el('#payment-editor').open) renderOrderEditor();
   }).catch(() => {
     el('#save-status').textContent = 'Simpanan tempahan belum tersedia. Sila hubungi pihak sekolah.';
     el('#save-status').hidden = false;
   });
+  uniformRequest('capabilities').then(features => {
+    state.orderEditingReady = features.orderEditing === true;
+    if (state.editingPayment && el('#payment-editor').open) renderOrderEditor();
+  }).catch(() => { state.orderEditingReady = false; });
   renderAll();
 }
 
@@ -183,18 +194,23 @@ function bindGlobalEvents() {
     el('#page-title').textContent = 'Borang Tempahan Ibu Bapa';
     el('#student-search').value = ''; renderStudents(); renderSelectedStudent(); renderProducts();
   });
-  ['#payment-search','#payment-class','#payment-item','#payment-status-filter'].forEach(selector => el(selector).addEventListener('input', renderPaymentRecords));
+  ['#payment-search','#payment-class','#payment-item','#payment-status-filter','#payment-archived'].forEach(selector => el(selector).addEventListener('input', renderPaymentRecords));
+  els('[data-editor-mode]').forEach(button => button.addEventListener('click', () => switchPaymentEditorMode(button.dataset.editorMode)));
+  el('#order-editor-form').addEventListener('submit', event => { event.preventDefault(); saveOrderCorrection('editOrderItems'); });
+  el('#edit-order-note').addEventListener('input', () => { state.pendingOrderUpdate = null; });
+  el('#delete-order').addEventListener('click', () => saveOrderCorrection('deleteOrder'));
+  el('#restore-order').addEventListener('click', () => saveOrderCorrection('restoreOrder'));
   el('#close-payment-editor').addEventListener('click', () => el('#payment-editor').close());
   el('#payment-editor-form').addEventListener('submit', savePaymentStatus);
-  el('#payment-editor').addEventListener('cancel', event => { if (el('#save-payment-status').disabled) event.preventDefault(); });
+  el('#payment-editor').addEventListener('cancel', event => { if (state.editorBusy) event.preventDefault(); });
   el('#payment-editor-form').addEventListener('input', () => { state.pendingPaymentUpdate = null; });
   el('#edit-payment-status').addEventListener('change', () => {
     const status = el('#edit-payment-status').value;
     const input = el('#edit-payment-received');
     if (status === 'Belum bayar') input.value = '0.00';
-    if (status === 'Selesai bayar') input.value = state.editingPayment.total.toFixed(2);
-    if (status === 'Bayar sebahagian' && (Number(input.value) <= 0 || Number(input.value) >= state.editingPayment.total)) input.value = '';
-    input.readOnly = status !== 'Bayar sebahagian';
+    if (status === 'Selesai bayar') input.value = Math.max(effectiveTotal(state.editingPayment),paidAmount(state.editingPayment)).toFixed(2);
+    if (status === 'Bayar sebahagian' && (Number(input.value) <= 0 || Number(input.value) >= effectiveTotal(state.editingPayment))) input.value = '';
+    input.readOnly = status !== 'Bayar sebahagian' && !(status === 'Selesai bayar' && creditAmount(state.editingPayment) > 0);
     renderPaymentEditorBalance();
   });
   el('#edit-payment-received').addEventListener('input', renderPaymentEditorBalance);
@@ -230,9 +246,20 @@ function bindGlobalEvents() {
   el('#uniform-gender').addEventListener('change', () => {
     state.parentCart = {}; state.pendingOrder = null; renderProducts(); renderCartSummary();
   });
-  ['#manual-student', '#manual-gender'].forEach(selector => el(selector).addEventListener('change', () => {
+  el('#manual-gender').addEventListener('change', () => {
     state.manualCart = {}; state.pendingManualOrder = null; renderManualProducts(); renderManualSummary();
-  }));
+  });
+  el('#manual-student-search').addEventListener('input', () => {
+    if (el('#manual-student').value) clearManualStudent(false);
+    renderManualStudentSuggestions();
+  });
+  el('#manual-student-search').addEventListener('focus', renderManualStudentSuggestions);
+  el('#manual-student-search').addEventListener('keydown', handleManualStudentKey);
+  el('#change-manual-student').addEventListener('click', () => { clearManualStudent(true); el('#manual-student-search').focus(); });
+  document.addEventListener('click', event => { if (!el('#manual-student-field').contains(event.target)) closeManualStudentSuggestions(); });
+  el('#manual-student-field').addEventListener('focusout', event => {
+    if (!el('#manual-student-field').contains(event.relatedTarget)) closeManualStudentSuggestions();
+  });
   el('#manual-note').addEventListener('input', () => { state.pendingManualOrder = null; });
   ["#filter-search", "#filter-year", "#filter-class", "#filter-payment", "#filter-delivery"].forEach(
     (selector) => el(selector).addEventListener("input", renderOrdersTable)
@@ -360,7 +387,21 @@ function renderProducts() {
 }
 
 function renderManualProducts() {
-  renderProductGrid("#manual-products", state.manualCart, false);
+  const student = state.students.find(student => student.id === el('#manual-student').value);
+  const products = availableProducts(student, el('#manual-gender').value);
+  const table = el('#manual-products');
+  table.innerHTML = products.length ? products.map((product,index) => {
+    const line = state.manualCart[product.id] || { size: product.sizes[0], color: product.colors[0] || '', qty: 0 };
+    return `<tr data-product-card="${escapeAttr(product.id)}">
+      <td>${index+1}</td><td><strong>${escapeHtml(product.name)}</strong></td>
+      <td>${product.colors.length ? `<select data-product-color="${escapeAttr(product.id)}" aria-label="Warna ${escapeAttr(product.name)}">${product.colors.map(color => `<option ${color === line.color ? 'selected' : ''}>${escapeHtml(color)}</option>`).join('')}</select>` : '-'}</td>
+      <td><select data-product-size="${escapeAttr(product.id)}" aria-label="Saiz ${escapeAttr(product.name)}">${product.sizes.map(size => `<option ${size === line.size ? 'selected' : ''}>${escapeHtml(size)}</option>`).join('')}</select></td>
+      <td class="number" data-line-price>${money(unitPrice(product,line.size))}</td>
+      <td><input data-product-qty="${escapeAttr(product.id)}" type="number" min="0" max="99" step="1" value="${line.qty}" aria-label="Kuantiti ${escapeAttr(product.name)}" /></td>
+      <td class="number" data-line-total>${money(unitPrice(product,line.size)*line.qty)}</td></tr>`;
+  }).join('') : '<tr><td colspan="7" class="empty">Pilih murid dahulu.</td></tr>';
+  bindProductControls(table, products, state.manualCart, false);
+  el('#save-manual-order').disabled = !student;
 }
 
 function availableProducts(student, gender) {
@@ -395,14 +436,18 @@ function renderProductGrid(selector, cart, updateParentSummary) {
         <span data-line-total>Jumlah: ${money(unitPrice(product, line.size) * line.qty)}</span>
       </article>`;
   }).join('') : '<div class="empty">Pilih murid untuk melihat uniform mengikut tahun.</div>';
+  bindProductControls(grid, products, cart, updateParentSummary);
+}
+
+function bindProductControls(grid, products, cart, updateParentSummary) {
   grid.querySelectorAll('[data-product-card]').forEach(card => {
     const product = products.find(p => p.id === card.dataset.productCard);
     card.querySelectorAll('input, select').forEach(control => control.addEventListener('input', () => {
       const size = card.querySelector('[data-product-size]').value;
       const qty = Math.min(99, Math.max(0, Math.floor(Number(card.querySelector('[data-product-qty]').value) || 0)));
       cart[product.id] = { size, qty, color: card.querySelector('[data-product-color]')?.value || '' };
-      card.querySelector('[data-line-price]').textContent = money(unitPrice(product, size)) + ' / unit';
-      card.querySelector('[data-line-total]').textContent = 'Jumlah: ' + money(unitPrice(product, size) * qty);
+      card.querySelector('[data-line-price]').textContent = money(unitPrice(product, size)) + (updateParentSummary ? ' / unit' : '');
+      card.querySelector('[data-line-total]').textContent = (updateParentSummary ? 'Jumlah: ' : '') + money(unitPrice(product, size) * qty);
       if (updateParentSummary) state.pendingOrder = null; else state.pendingManualOrder = null;
       if (updateParentSummary) renderCartSummary(); else renderManualSummary();
     }));
@@ -569,6 +614,7 @@ function renderDashboard() {
     ["Kutipan tunai", money(totals.cashPaid)],
     ["Kutipan QR", money(totals.qrPaid)],
     ["Baki belum diterima", money(totals.balance)],
+    ["Lebihan / bayaran perlu diurus", money(totals.credit)],
     ["Anggaran untung kasar", money(totals.profit)],
     ["Belum selesai serahan", totals.pendingDelivery],
     ["Selesai bayar", totals.paidOrders],
@@ -583,7 +629,7 @@ function renderDashboard() {
     )
     .join("");
 
-  const statusCounts = countBy(state.orders, (order) => paymentStatus(order));
+  const statusCounts = countBy(state.orders.filter(order => !order.deletedAt), (order) => paymentStatus(order));
   const max = Math.max(1, ...Object.values(statusCounts));
   el("#status-breakdown").innerHTML = ["Belum bayar", "Bayar sebahagian", "Selesai bayar"]
     .map((status) => {
@@ -643,14 +689,77 @@ function renderProductTable() {
 }
 
 function renderStudentOptions() {
-  const options = state.students
-    .map((student) => `<option value="${escapeAttr(student.id)}">${escapeHtml(student.name)} - ${escapeHtml(student.className)}</option>`)
-    .join("");
-  el("#manual-student").innerHTML = options || '<option value="">Tiada murid</option>';
+  const student = state.students.find(student => student.id === el('#manual-student').value);
+  if (student) selectManualStudent(student.id);
+  else clearManualStudent(false);
+  if (document.activeElement === el('#manual-student-search')) renderManualStudentSuggestions();
   renderManualProducts(); renderManualSummary();
 }
 
+function closeManualStudentSuggestions() {
+  el('#manual-student-suggestions').hidden = true;
+  el('#manual-student-search').setAttribute('aria-expanded','false');
+  el('#manual-student-search').removeAttribute('aria-activedescendant');
+  state.manualSuggestionIndex = -1;
+}
+
+function renderManualStudentSuggestions() {
+  const query = el('#manual-student-search').value.trim().toLowerCase();
+  if (!query || el('#manual-student').value) { closeManualStudentSuggestions(); return; }
+  const words = query.split(/\s+/);
+  state.manualSuggestions = state.students.filter(student => words.every(word => `${student.name} ${student.className}`.toLowerCase().includes(word))).slice(0,30);
+  state.manualSuggestionIndex = -1;
+  const list = el('#manual-student-suggestions');
+  list.innerHTML = state.manualSuggestions.length ? state.manualSuggestions.map((student,index) => `<button type="button" role="option" tabindex="-1" aria-selected="false" id="manual-option-${index}" data-manual-student="${escapeAttr(student.id)}"><strong>${escapeHtml(student.name)}</strong><span>${escapeHtml(student.className)} / Tahun ${escapeHtml(student.year)}</span></button>`).join('') : '<p role="status" class="suggestion-empty">Tiada murid ditemui.</p>';
+  list.hidden = false;
+  el('#manual-student-search').setAttribute('aria-expanded','true');
+  el('#manual-student-search').removeAttribute('aria-activedescendant');
+  list.querySelectorAll('[data-manual-student]').forEach(button => {
+    button.addEventListener('pointerdown', event => event.preventDefault());
+    button.addEventListener('click', () => selectManualStudent(button.dataset.manualStudent));
+  });
+}
+
+function selectManualStudent(id) {
+  const student = state.students.find(student => student.id === id);
+  if (!student) return;
+  if (el('#manual-student').value !== id) { state.manualCart = {}; state.pendingManualOrder = null; }
+  el('#manual-student').value = id;
+  el('#manual-student-search').value = student.name;
+  el('#manual-student-details').textContent = `${student.className} / Tahun ${student.year} / Tahap ${Number(student.year) <= 3 ? 1 : 2}`;
+  el('#change-manual-student').hidden = false;
+  closeManualStudentSuggestions(); renderManualProducts(); renderManualSummary();
+}
+
+function clearManualStudent(clearText) {
+  el('#manual-student').value = '';
+  if (clearText) el('#manual-student-search').value = '';
+  el('#manual-student-details').textContent = '';
+  el('#change-manual-student').hidden = true;
+  state.manualCart = {}; state.pendingManualOrder = null;
+  closeManualStudentSuggestions(); renderManualProducts(); renderManualSummary();
+}
+
+function handleManualStudentKey(event) {
+  const list = el('#manual-student-suggestions');
+  if (event.key === 'Escape') { closeManualStudentSuggestions(); return; }
+  if (!['ArrowDown','ArrowUp','Enter'].includes(event.key) || el('#manual-student').value) return;
+  if (list.hidden) renderManualStudentSuggestions();
+  if (!state.manualSuggestions.length || list.hidden) return;
+  event.preventDefault();
+  if (event.key === 'Enter') {
+    selectManualStudent(state.manualSuggestions[Math.max(0,state.manualSuggestionIndex)].id); return;
+  }
+  const count = state.manualSuggestions.length;
+  state.manualSuggestionIndex = event.key === 'ArrowDown' ? (state.manualSuggestionIndex+1)%count : (state.manualSuggestionIndex <= 0 ? count-1 : state.manualSuggestionIndex-1);
+  list.querySelectorAll('[role="option"]').forEach((option,index) => option.setAttribute('aria-selected',String(index === state.manualSuggestionIndex)));
+  const active = el(`#manual-option-${state.manualSuggestionIndex}`);
+  el('#manual-student-search').setAttribute('aria-activedescendant',active.id);
+  active.scrollIntoView({ block:'nearest' });
+}
+
 async function saveManualOrder() {
+  if (els('#manual-products input').some(input => !input.checkValidity())) { alert('Kuantiti mestilah nombor bulat antara 0 hingga 99.'); return; }
   const student = state.students.find((item) => item.id === el("#manual-student").value);
   const items = getCartItems(state.manualCart);
   if (!student || !items.length) {
@@ -664,11 +773,15 @@ async function saveManualOrder() {
       note: el("#manual-note").value.trim(),
     });
   order.gender = el('#manual-gender').value;
-  const button = el('#save-manual-order'); button.disabled = true;
+  const controls = els('#tab-manual input, #tab-manual select, #tab-manual button');
+  controls.forEach(control => { control.disabled = true; });
   state.pendingManualOrder = state.pendingManualOrder || order;
-  try { state.orders.unshift(await uniformRequest('saveOrder', { order: state.pendingManualOrder }, state.adminToken)); state.pendingManualOrder = null; }
+  try {
+    const saved = await uniformRequest('saveOrder', { order: state.pendingManualOrder }, state.adminToken);
+    state.orders = [saved,...state.orders.filter(order => order.id !== saved.id)]; state.pendingManualOrder = null;
+  }
   catch (error) { alert(error.message); return; }
-  finally { button.disabled = false; }
+  finally { controls.forEach(control => { control.disabled = false; }); }
   state.manualCart = {};
   el("#manual-note").value = "";
   renderAll();
@@ -676,25 +789,26 @@ async function saveManualOrder() {
 }
 
 function renderPaymentRecords() {
+  const scope = state.orders.filter(order => Boolean(order.deletedAt) === el('#payment-archived').checked);
   const fillOptions = (selector, values, label) => {
     const select = el(selector), previous = select.value;
     select.innerHTML = `<option value="">${label}</option>` + values.map(value => `<option value="${escapeAttr(value)}">${escapeHtml(value)}</option>`).join('');
     if (values.includes(previous)) select.value = previous;
   };
-  fillOptions('#payment-class', unique(state.orders.map(order => order.className)).sort(), 'Semua kelas');
-  fillOptions('#payment-item', unique(state.orders.flatMap(order => order.items.map(item => item.name))).sort(), 'Semua item');
+  fillOptions('#payment-class', unique(scope.map(order => order.className)).sort(), 'Semua kelas');
+  fillOptions('#payment-item', unique(scope.flatMap(order => order.items.map(item => item.name))).sort(), 'Semua item');
   const search = el('#payment-search').value.trim().toLowerCase();
-  const orders = state.orders.filter(order => order.student.name.toLowerCase().includes(search)
+  const orders = scope.filter(order => order.student.name.toLowerCase().includes(search)
     && (!el('#payment-class').value || order.className === el('#payment-class').value)
     && (!el('#payment-item').value || order.items.some(item => item.name === el('#payment-item').value))
     && (!el('#payment-status-filter').value || paymentStatus(order) === el('#payment-status-filter').value));
   const totals = calculateTotals(orders);
-  el('#payment-summary').innerHTML = `<strong>${orders.length} tempahan</strong><span>Jumlah: ${money(totals.orderValue)}</span><span>Diterima: ${money(totals.totalPaid)}</span><span>Baki: ${money(totals.balance)}</span>`;
+  el('#payment-summary').innerHTML = `<strong>${orders.length} tempahan${el('#payment-archived').checked ? ' dipadam' : ''}</strong><span>Jumlah: ${money(totals.orderValue)}</span><span>Diterima: ${money(totals.totalPaid)}</span><span>Baki: ${money(totals.balance)}</span>${totals.credit ? `<span class="credit-label">Lebihan / perlu diurus: ${money(totals.credit)}</span>` : ''}`;
   el('#payment-records').innerHTML = orders.length ? orders.map(order => `
     <tr>
       <td><strong>${escapeHtml(order.student.name)}</strong><small class="cell-detail">${escapeHtml(order.className)}<br>${escapeHtml(formatDate(order.createdAt))}</small></td>
       <td class="payment-items">${order.items.map(item => `<div>${escapeHtml(item.name)} <small>${escapeHtml(item.size)}${item.color ? ' / '+escapeHtml(item.color) : ''} &times; ${item.qty}</small></div>`).join('')}</td>
-      <td class="number">${money(order.total)}</td><td class="number">${money(paidAmount(order))}</td><td class="number">${money(order.total-paidAmount(order))}</td>
+      <td class="number">${money(effectiveTotal(order))}${order.deletedAt ? `<small class="cell-detail">Asal: ${money(order.total)}</small>` : ''}</td><td class="number">${money(paidAmount(order))}</td><td class="number">${money(Math.max(0,effectiveTotal(order)-paidAmount(order)))}${creditAmount(order) ? `<small class="cell-detail credit-label">Lebihan: ${money(creditAmount(order))}</small>` : ''}</td>
       <td><span class="status ${statusClass(paymentStatus(order))}">${paymentStatus(order)}</span></td>
       <td><button class="ghost-button" data-edit-payment="${escapeAttr(order.id)}" aria-label="Kemaskini bayaran ${escapeAttr(order.student.name)}" ${supportsSizeCosts() ? '' : 'disabled title="Kemas kini Apps Script kepada versi 6"'}>Kemaskini</button></td>
     </tr>`).join('') : '<tr><td colspan="7" class="empty">Tiada rekod bayaran sepadan.</td></tr>';
@@ -704,14 +818,18 @@ function renderPaymentRecords() {
 function openPaymentEditor(id) {
   const order = state.orders.find(order => order.id === id);
   state.editingPayment = structuredClone(order); state.pendingPaymentUpdate = null;
+  state.orderDraft = order.items.map((item,index) => ({ index,size:item.size })); state.pendingOrderUpdate = null;
+  el('#order-editor-form').reset(); el('#order-editor-error').hidden = true;
   el('#payment-editor-form').reset(); el('#payment-editor-error').hidden = true;
-  el('#payment-editor-student').innerHTML = `<strong>${escapeHtml(order.student.name)}</strong><p>${escapeHtml(order.className)} &middot; Jumlah tempahan: ${money(order.total)}</p>`;
+  el('#payment-editor-student').innerHTML = `<strong>${escapeHtml(order.student.name)}</strong><p>${escapeHtml(order.className)} &middot; Jumlah tempahan: ${money(effectiveTotal(order))}${order.deletedAt ? ' &middot; <span class="status unpaid">Tempahan dipadam</span>' : ''}</p>`;
   el('#edit-payment-status').value = paymentStatus(order);
   el('#edit-payment-received').value = paidAmount(order).toFixed(2);
-  el('#edit-payment-received').max = order.total;
-  el('#edit-payment-received').readOnly = paymentStatus(order) !== 'Bayar sebahagian';
+  el('#edit-payment-received').max = Math.max(effectiveTotal(order),paidAmount(order));
+  el('#edit-payment-received').readOnly = paymentStatus(order) !== 'Bayar sebahagian' && creditAmount(order) === 0;
+  el('#edit-payment-status').querySelector('option:nth-child(2)').disabled = effectiveTotal(order) <= 0;
   el('#payment-history').innerHTML = paymentHistoryHtml(order);
   renderPaymentEditorBalance();
+  renderOrderEditor(); switchPaymentEditorMode('payment');
   el('#payment-editor').showModal();
 }
 
@@ -725,38 +843,105 @@ function paymentHistoryHtml(order) {
 
 function renderPaymentEditorBalance() {
   const order = state.editingPayment;
-  el('#payment-editor-balance').textContent = `Diterima sekarang: ${money(paidAmount(order))} | Baki selepas kemaskini: ${money(order.total-Number(el('#edit-payment-received').value))}`;
+  const received = Number(el('#edit-payment-received').value), total = effectiveTotal(order);
+  el('#payment-editor-balance').textContent = `Diterima sekarang: ${money(paidAmount(order))} | Baki selepas kemaskini: ${money(Math.max(0,total-received))}${received > total ? ' | Lebihan / perlu diurus: '+money(received-total) : ''}`;
 }
 
 async function savePaymentStatus(event) {
   event.preventDefault();
   const order = state.editingPayment, received = Number(el('#edit-payment-received').value);
-  const status = received === 0 ? 'Belum bayar' : received < order.total ? 'Bayar sebahagian' : 'Selesai bayar';
+  const status = received === 0 ? 'Belum bayar' : received < effectiveTotal(order) ? 'Bayar sebahagian' : 'Selesai bayar';
   const errorBox = el('#payment-editor-error'); errorBox.hidden = true;
-  if (!Number.isFinite(received) || received < 0 || received > order.total || status !== el('#edit-payment-status').value) {
+  if (!Number.isFinite(received) || received < 0 || received > Math.max(effectiveTotal(order),paidAmount(order)) || status !== el('#edit-payment-status').value) {
     errorBox.textContent = 'Jumlah diterima mesti sepadan dengan status bayaran.'; errorBox.hidden = false; return;
   }
-  state.pendingPaymentUpdate ||= { orderId: order.id, updateId: crypto.randomUUID(), expectedPaid: paidAmount(order), received, status,
+  state.pendingPaymentUpdate ||= { orderId: order.id, updateId: crypto.randomUUID(), expectedPaid: paidAmount(order), expectedOrder:JSON.stringify(order), received, status,
     method: el('#edit-payment-method').value, note: el('#edit-payment-note').value.trim() };
-  const controls = els('#payment-editor-form input, #payment-editor-form select, #payment-editor-form button');
+  state.editorBusy = true;
+  const controls = els('#payment-editor input, #payment-editor select, #payment-editor textarea, #payment-editor button');
   controls.forEach(control => { control.disabled = true; });
   try {
     const saved = await uniformRequest('setPaymentStatus', state.pendingPaymentUpdate, state.adminToken);
     state.orders = state.orders.map(order => order.id === saved.id ? saved : order);
     state.pendingPaymentUpdate = null; el('#payment-editor').close(); renderAll();
   } catch (error) { errorBox.textContent = error.message; errorBox.hidden = false; }
-  finally { controls.forEach(control => { control.disabled = false; }); }
+  finally { state.editorBusy = false; controls.forEach(control => { control.disabled = false; }); if (el('#payment-editor').open) renderOrderEditor(); }
+}
+
+function switchPaymentEditorMode(mode) {
+  el('#payment-editor-form').hidden = mode !== 'payment';
+  el('#order-editor-form').hidden = mode !== 'order';
+  els('[data-editor-mode]').forEach(button => button.setAttribute('aria-selected',String(button.dataset.editorMode === mode)));
+}
+
+function draftOrderItems() {
+  const order = state.editingPayment;
+  return state.orderDraft.map(draft => {
+    const original = order.items[draft.index], product = state.products.find(product => product.id === original.productId);
+    return { ...original, size:draft.size, price:draft.size === original.size ? original.price : unitPrice(product,draft.size) };
+  });
+}
+
+function renderOrderEditor() {
+  const order = state.editingPayment, items = draftOrderItems();
+  const disabled = !state.orderEditingReady || Boolean(order.deletedAt) || state.editorBusy;
+  el('#order-editor-backend').hidden = state.orderEditingReady;
+  el('#edit-order-items').innerHTML = state.orderDraft.map((draft,index) => {
+    const item = items[index], product = state.products.find(product => product.id === item.productId);
+    const sizes = unique([...(product?.sizes || []),order.items[draft.index].size]);
+    return `<tr><td><strong>${escapeHtml(item.name)}</strong><small class="cell-detail">${escapeHtml(item.color || '-')}</small></td>
+      <td><select data-edit-size="${draft.index}" aria-label="Saiz ${escapeAttr(item.name)} item ${index+1}" ${disabled ? 'disabled' : ''}>${sizes.map(size => `<option ${size === draft.size ? 'selected' : ''}>${escapeHtml(size)}</option>`).join('')}</select></td><td>${item.qty}</td><td class="number">${money(item.price)}</td><td class="number">${money(item.price*item.qty)}</td>
+      <td><button type="button" class="icon-button" data-remove-order-item="${draft.index}" aria-label="Padam item ${escapeAttr(item.name)}" title="Padam item ${escapeAttr(item.name)}" ${disabled || items.length <= 1 ? 'disabled' : ''}>${icons.trash}</button></td></tr>`;
+  }).join('');
+  els('[data-edit-size]').forEach(select => select.addEventListener('change', () => {
+    state.orderDraft.find(draft => draft.index === Number(select.dataset.editSize)).size = select.value;
+    state.pendingOrderUpdate = null; renderOrderEditor();
+  }));
+  els('[data-remove-order-item]').forEach(button => button.addEventListener('click', () => {
+    state.orderDraft = state.orderDraft.filter(draft => draft.index !== Number(button.dataset.removeOrderItem));
+    state.pendingOrderUpdate = null; renderOrderEditor();
+  }));
+  const total = order.deletedAt ? 0 : itemsTotal(items), paid = paidAmount(order);
+  el('#order-editor-summary').innerHTML = `<span>Jumlah baharu: <strong>${money(total)}</strong></span><span>Diterima: ${money(paid)}</span><span>Baki: ${money(Math.max(0,total-paid))}</span>${paid > total ? `<span class="credit-label">Lebihan / perlu diurus: ${money(paid-total)}</span>` : ''}`;
+  el('#save-order-items').hidden = Boolean(order.deletedAt);
+  el('#delete-order').hidden = Boolean(order.deletedAt);
+  el('#restore-order').hidden = !order.deletedAt;
+  ['#save-order-items','#delete-order','#restore-order'].forEach(selector => { el(selector).disabled = !state.orderEditingReady || state.editorBusy; });
+  el('#order-edit-history').innerHTML = (order.orderUpdates || []).length ? order.orderUpdates.slice().reverse().map(update => `<div class="edit-history-row"><strong>${escapeHtml(update.action === 'deleteOrder' ? 'Tempahan dipadam' : update.action === 'restoreOrder' ? 'Tempahan dipulihkan' : 'Item dikemas kini')}</strong><small class="cell-detail">${escapeHtml(formatDate(update.date))}</small><p>${escapeHtml(update.note)}</p>${(update.changes || []).map(change => `<div>${escapeHtml(change.product)}: ${change.removed ? 'Item dipadam' : escapeHtml(change.fromSize)+' kepada '+escapeHtml(change.toSize)}</div>`).join('')}</div>`).join('') : '<p class="empty">Belum ada pembetulan.</p>';
+}
+
+async function saveOrderCorrection(action) {
+  if (state.editorBusy || !state.orderEditingReady) return;
+  const note = el('#edit-order-note').value.trim(), errorBox = el('#order-editor-error'); errorBox.hidden = true;
+  if (!note) { errorBox.textContent = 'Masukkan sebab pembetulan atau pemadaman.'; errorBox.hidden = false; return; }
+  const order = state.editingPayment;
+  if (action === 'deleteOrder' && !confirm(`Padam tempahan ${order.student.name}? Tempahan boleh dipulihkan. Bayaran ${money(paidAmount(order))} dan resit asal akan dikekalkan.`)) return;
+  if (!state.pendingOrderUpdate || state.pendingOrderUpdate.action !== action) state.pendingOrderUpdate = {
+    action, payload:{orderId:order.id,updateId:crypto.randomUUID(),expectedOrder:JSON.stringify(order),note,items:structuredClone(state.orderDraft)}
+  };
+  state.editorBusy = true;
+  const controls = els('#payment-editor input, #payment-editor select, #payment-editor textarea, #payment-editor button'); controls.forEach(control => { control.disabled = true; });
+  try {
+    const saved = await uniformRequest(state.pendingOrderUpdate.action,state.pendingOrderUpdate.payload,state.adminToken);
+    state.orders = state.orders.map(order => order.id === saved.id ? saved : order);
+    state.pendingOrderUpdate = null;
+    if (action !== 'editOrderItems') { el('#payment-archived').checked = action === 'deleteOrder'; el('#payment-status-filter').value = ''; }
+    el('#payment-editor').close(); renderAll();
+  } catch (error) { errorBox.textContent = error.message; errorBox.hidden = false; }
+  finally { state.editorBusy = false; controls.forEach(control => { control.disabled = false; }); if (el('#payment-editor').open) renderOrderEditor(); }
 }
 
 function renderParentConfirmation() {
   const order = state.confirmedOrder;
+  el('#parent-confirmation .label').textContent = order.deletedAt ? 'Tempahan dipadam' : 'Tempahan berjaya disimpan';
   el('.parent-layout').hidden = true;
   el('#parent-confirmation').hidden = false;
   el('#page-title').textContent = 'Ringkasan tempahan';
   el('#confirmation-content').innerHTML = `
     <dl class="confirmation-meta"><div><dt>Nama murid</dt><dd>${escapeHtml(order.student.name)}</dd></div><div><dt>Tahun / kelas</dt><dd>Tahun ${escapeHtml(order.year)} / ${escapeHtml(order.className)}</dd></div><div><dt>Tarikh tempahan</dt><dd>${escapeHtml(formatDate(order.createdAt))}</dd></div><div><dt>No. tempahan</dt><dd>${escapeHtml(order.id)}</dd></div><div><dt>Nama pembayar</dt><dd>${escapeHtml(order.payerName)}</dd></div></dl>
     <h4>Senarai tempahan</h4><div class="table-wrap"><table class="confirmation-table"><thead><tr><th>Item</th><th>Warna / saiz</th><th class="number">Kuantiti</th><th class="number">Harga seunit</th><th class="number">Jumlah</th></tr></thead><tbody>${order.items.map(item => `<tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.color || '-')} / ${escapeHtml(item.size)}</td><td class="number">${item.qty}</td><td class="number">${money(item.price)}</td><td class="number">${money(item.price*item.qty)}</td></tr>`).join('')}</tbody></table></div>
-    <div class="confirmation-totals"><div>Jumlah tempahan<strong>${money(order.total)}</strong></div><div>Bayaran diterima<strong>${money(paidAmount(order))}</strong></div><div>Baki bayaran<strong>${money(order.total-paidAmount(order))}</strong></div><div>Status bayaran<span class="status ${statusClass(paymentStatus(order))}">${paymentStatus(order)}</span></div></div>
+    ${order.deletedAt ? `<p class="form-error">Tempahan dipadam pada ${escapeHtml(formatDate(order.deletedAt))}: ${escapeHtml(order.deletedReason)}</p>` : ''}
+    <div class="confirmation-totals"><div>Jumlah tempahan<strong>${money(effectiveTotal(order))}</strong></div><div>Bayaran diterima<strong>${money(paidAmount(order))}</strong></div><div>Baki bayaran<strong>${money(Math.max(0,effectiveTotal(order)-paidAmount(order)))}</strong></div><div>Status bayaran<span class="status ${statusClass(paymentStatus(order))}">${paymentStatus(order)}</span></div></div>${creditAmount(order) ? `<p class="credit-label">Lebihan / bayaran perlu diurus: ${money(creditAmount(order))}</p>` : ''}
     <h4>Rekod bayaran</h4>${paymentHistoryHtml(order)}
     ${order.note ? `<h4>Catatan</h4><p class="order-note">${escapeHtml(order.note)}</p>` : ''}`;
   el('#parent-confirmation').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -782,7 +967,7 @@ function renderOrdersTable() {
     ? filtered
         .map((order) => {
           const paid = paidAmount(order);
-          const balance = Math.max(0, order.total - paid);
+          const balance = Math.max(0, effectiveTotal(order) - paid);
           return `
             <tr data-order-id="${escapeAttr(order.id)}">
               <td>
@@ -804,7 +989,7 @@ function renderOrdersTable() {
               </td>
               <td>${money(order.total)}</td>
               <td>${money(paid)}</td>
-              <td>${money(balance)}</td>
+              <td>${money(balance)}${creditAmount(order) ? `<small class="cell-detail credit-label">Lebihan: ${money(creditAmount(order))}</small>` : ''}</td>
               <td><span class="status ${statusClass(paymentStatus(order))}">${paymentStatus(order)}</span></td>
               <td>${deliveryStatus(order)}</td>
             </tr>
@@ -835,6 +1020,7 @@ function filteredOrders() {
   const pay = el("#filter-payment").value;
   const delivery = el("#filter-delivery").value;
   return state.orders.filter((order) => {
+    if (order.deletedAt) return false;
     const matchesQuery = !query || order.student.name.toLowerCase().includes(query);
     const matchesYear = !year || order.year === year;
     const matchesClass = !className || order.className === className;
@@ -856,7 +1042,7 @@ function renderFilters() {
 }
 
 function renderReports() {
-  const byClass = countBy(state.orders, (order) => order.className || "Tanpa kelas");
+  const byClass = countBy(state.orders.filter(order => !order.deletedAt), (order) => order.className || "Tanpa kelas");
   el("#class-report").innerHTML = Object.keys(byClass).length
     ? Object.entries(byClass)
         .sort(([a], [b]) => a.localeCompare(b))
@@ -869,6 +1055,7 @@ function renderReports() {
     ["Jumlah tempahan", money(totals.orderValue)],
     ["Jumlah diterima", money(totals.totalPaid)],
     ["Baki belum diterima", money(totals.balance)],
+    ["Lebihan / bayaran perlu diurus", money(totals.credit)],
     ["Kos anggaran", money(totals.costValue)],
     ["Untung kasar", money(totals.profit)],
   ]
@@ -876,7 +1063,7 @@ function renderReports() {
     .join("");
 
   const pending = state.orders.filter(
-    (order) => paymentStatus(order) !== "Selesai bayar" || deliveryStatus(order) !== "Selesai diserahkan"
+    (order) => !order.deletedAt && (paymentStatus(order) !== "Selesai bayar" || deliveryStatus(order) !== "Selesai diserahkan")
   );
   el("#pending-report").innerHTML = pending.length
     ? pending
@@ -894,29 +1081,31 @@ function renderReports() {
 }
 
 function calculateTotals(orders) {
-  const uniqueStudents = unique(orders.map((order) => order.student.id));
-  const orderValue = orders.reduce((sum, order) => sum + order.total, 0);
-  const totalPaid = orders.reduce((sum, order) => sum + paidAmount(order), 0);
+  const active = orders.filter(order => !order.deletedAt);
+  const uniqueStudents = unique(active.map((order) => order.student.id));
+  const orderValue = active.reduce((sum, order) => sum + Math.round(order.total*100), 0)/100;
+  const totalPaid = orders.reduce((sum, order) => sum + Math.round(paidAmount(order)*100), 0)/100;
   const cashPaid = orders.reduce(
-    (sum, order) => sum + order.payments.filter((payment) => payment.method === "Tunai").reduce((a, b) => a + b.amount, 0),
+    (sum, order) => sum + order.payments.filter((payment) => payment.method === "Tunai").reduce((a, b) => a + Math.round(b.amount*100), 0),
     0
-  );
+  )/100;
   const qrPaid = totalPaid - cashPaid;
-  const costValue = orders.reduce(
-    (sum, order) => sum + order.items.reduce((itemSum, item) => itemSum + item.cost * item.qty, 0),
+  const costValue = active.reduce(
+    (sum, order) => sum + order.items.reduce((itemSum, item) => itemSum + Math.round(item.cost*100) * item.qty, 0),
     0
-  );
+  )/100;
   return {
     studentsOrdered: uniqueStudents.length,
     orderValue,
     totalPaid,
     cashPaid,
     qrPaid,
-    balance: Math.max(0, orderValue - totalPaid),
+    balance: orders.reduce((sum,order) => sum+Math.max(0,Math.round(effectiveTotal(order)*100)-Math.round(paidAmount(order)*100)),0)/100,
+    credit: orders.reduce((sum,order) => sum+Math.round(creditAmount(order)*100),0)/100,
     costValue,
     profit: orderValue - costValue,
-    pendingDelivery: orders.filter((order) => deliveryStatus(order) !== "Selesai diserahkan").length,
-    paidOrders: orders.filter((order) => paymentStatus(order) === "Selesai bayar").length,
+    pendingDelivery: active.filter((order) => deliveryStatus(order) !== "Selesai diserahkan").length,
+    paidOrders: active.filter((order) => paymentStatus(order) === "Selesai bayar").length,
   };
 }
 
@@ -933,19 +1122,25 @@ function exportOrders() {
     "Status bayaran",
     "Status serahan",
     "Catatan",
+    "Status tempahan",
+    "Jumlah asal",
+    "Lebihan / perlu diurus",
   ];
   const rows = state.orders.map((order) => [
     formatDate(order.createdAt),
     order.student.name,
     order.year,
     order.className,
-    order.items.reduce((sum, item) => sum + item.qty, 0),
-    order.total,
+    order.deletedAt ? 0 : order.items.reduce((sum, item) => sum + item.qty, 0),
+    effectiveTotal(order),
     paidAmount(order),
-    Math.max(0, order.total - paidAmount(order)),
+    Math.max(0, effectiveTotal(order) - paidAmount(order)),
     paymentStatus(order),
     deliveryStatus(order),
     order.note,
+    order.deletedAt ? 'Dipadam' : 'Aktif',
+    order.total,
+    creditAmount(order),
   ]);
   const csv = [header, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -968,13 +1163,17 @@ function paidAmount(order) {
 function paymentStatus(order) {
   const paid = paidAmount(order);
   if (paid <= 0) return "Belum bayar";
-  if (paid < order.total) return "Bayar sebahagian";
+  if (paid < effectiveTotal(order)) return "Bayar sebahagian";
   return "Selesai bayar";
 }
 
 function deliveryStatus(order) {
+  if (order.deletedAt) return 'Tempahan dipadam';
   return order.items.every((item) => item.delivered) ? "Selesai diserahkan" : "Belum selesai";
 }
+
+function effectiveTotal(order) { return order.deletedAt ? 0 : order.total; }
+function creditAmount(order) { return Math.max(0,Math.round(paidAmount(order)*100)-Math.round(effectiveTotal(order)*100))/100; }
 
 function statusClass(status) {
   if (status === "Selesai bayar") return "paid";

@@ -669,6 +669,19 @@ td {
 }
 
 .payment-filters { display: grid; grid-template-columns: 1.3fr repeat(3,minmax(0,1fr)); gap: 12px; }
+.student-autocomplete { position: relative; min-width: 0; }
+.student-suggestions { position: absolute; top: 76px; left: 0; right: 0; z-index: 5; max-height: 310px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; background: white; box-shadow: var(--shadow); }
+.student-suggestions button { display: grid; gap: 5px; width: 100%; padding: 12px; border: 0; border-bottom: 1px solid var(--line); background: white; text-align: left; color: var(--ink); overflow-wrap: anywhere; }
+.student-suggestions button:hover, .student-suggestions button[aria-selected="true"] { background: var(--soft); color: var(--primary); }
+.student-suggestions span { font-size: 0.82rem; color: var(--muted); }
+.suggestion-empty { margin: 0; padding: 14px; color: var(--muted); }
+.manual-student-selection { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 0.85rem; }
+#tab-manual .manual-grid { align-items: start; }
+.manual-order-table { min-width: 800px; }
+.manual-order-table select { min-width: 105px; }
+.manual-order-table input { width: 90px; }
+.manual-order-table tfoot { background: var(--soft); }
+#save-manual-order { margin-top: 18px; }
 .payment-summary { display: flex; flex-wrap: wrap; gap: 12px 24px; padding: 12px 0 18px; font-size: 0.9rem; }
 .number { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .cell-detail { display: block; margin-top: 6px; color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }
@@ -684,6 +697,16 @@ dialog::backdrop { background: rgba(15,30,25,0.5); }
 .dialog-head h3 { margin: 0; font-size: 1.1rem; }
 .history-table { min-width: 560px; }
 .form-error { color: var(--danger); font-weight: 600; }
+.archive-filter { display: flex; align-items: center; gap: 8px; width: fit-content; font-size: 0.9rem; }
+.archive-filter input { width: 18px; min-height: 18px; height: 18px; padding: 0; accent-color: var(--primary); }
+.editor-modes { display: flex; gap: 4px; padding: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--line); }
+.editor-modes button { min-height: 40px; padding: 0 14px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); }
+.editor-modes button[aria-selected="true"] { background: var(--primary); color: white; }
+.edit-items-table { min-width: 620px; }
+.edit-items-table select { min-width: 100px; }
+.edit-items-table .icon-button svg { width: 18px; height: 18px; stroke: currentColor; stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.edit-history-row { padding: 12px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; font-size: 0.9rem; }
+.credit-label { color: #a43b21; }
 #parent-confirmation { max-width: 1100px; padding: 24px; background: white; border-top: 4px solid var(--primary); }
 .confirmation-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: start; gap: 20px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
 .confirmation-head h3 { margin: 6px 0 0; font-size: 1.3rem; }

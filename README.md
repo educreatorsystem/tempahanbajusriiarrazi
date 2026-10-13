@@ -1,9 +1,12 @@
-# Sistem Tempahan Uniform Sekolah - Versi 6
+# Sistem Tempahan Uniform Sekolah - Versi 8
 
 Laman GitHub: https://educreatorsystem.github.io/tempahanbajusriiarrazi/
 
 ## Perubahan
 
+- Bayaran > Kemaskini > Item tempahan membolehkan guru membetulkan saiz, membuang item, memadam keseluruhan tempahan dan memulihkannya. Jumlah dikira semula; bayaran dan resit asal dikekalkan.
+- Tab Tempahan murid membolehkan guru menaip nama atau kelas, kemudian memilih nama daripada cadangan. Kelas dan tahun membezakan nama yang sama. Carian turut menyokong pilihan melalui papan kekunci.
+- Uniform dalam tab Tempahan murid dipaparkan dalam jadual: produk, warna, saiz, harga seunit, kuantiti, jumlah item dan jumlah keseluruhan. Pertukaran murid mengosongkan item draf lama.
 - Senarai nama tempahan terkini dipadam daripada Dashboard.
 - Harga jualan dan harga kos boleh ditetapkan untuk SETIAP saiz.
 - Bayaran murid dipaparkan dalam jadual dengan tapisan kelas, item, status dan carian nama.
@@ -21,11 +24,13 @@ Tiada npm atau proses build diperlukan. PDF dijana menggunakan pustaka tempatan 
 
 ## Kemas Kini Apps Script
 
+Pakej frontend dan Code.gs ialah versi 8. Apps Script mesti dideploy semula untuk mengaktifkan pembetulan saiz, pemadaman dan pemulihan tempahan.
+
 1. Buka projek Apps Script untuk URL /exec sedia ada.
 2. Gantikan kandungan Code.gs dengan apps-script/Code.gs dalam pakej ini. Ia lengkap dalam satu fail, termasuk katalog. Pastikan tiada fungsi doGet, doPost atau getUniformProducts yang bertindih.
 3. Simpan perubahan. Jika setup Google Sheet sudah dibuat, tidak perlu memadam atau mencipta semula tab. Untuk pemasangan pertama sahaja, jalankan setup dan benarkan akses Google yang diperlukan.
 4. Deploy > Manage deployments > pilih deployment sedia ada > Edit > Version: New version > Deploy. Kekalkan Execute as: Me dan Who has access: Anyone seperti konfigurasi sedia ada. Tindakan guru tetap memerlukan sesi login pelayan.
-5. Buka URL /exec dan pastikan respons memaparkan version: 6, catalogItems: 18 dan allowedOrigins yang mengandungi https://educreatorsystem.github.io.
+5. Buka URL /exec dan pastikan respons memaparkan version: 8, catalogItems: 18 dan allowedOrigins yang mengandungi https://educreatorsystem.github.io.
 6. Muat semula laman GitHub. Uji login, harga kos satu saiz, satu tempahan sebenar, resit dan kemaskini bayaran.
 
 Kata laluan kekal Guru1234 dalam HTML dan semakan pelayan. Tiada tetapan TEACHER_PASSWORD diperlukan. Kata laluan HTML boleh dilihat melalui sumber laman.
@@ -34,11 +39,15 @@ Rujukan deployment rasmi: https://developers.google.com/apps-script/guides/web
 
 ## Rekod Dan Bayaran
 
+Untuk membetulkan saiz: Bayaran > Kemaskini > Item tempahan, pilih saiz, masukkan sebab dan Simpan item. Ikon tong sampah membuang satu item sebelum disimpan. Padam tempahan membatalkan seluruh pesanan selepas pengesahan. Untuk memulihkan, tandakan Tempahan dipadam di tab Bayaran, buka Kemaskini > Item tempahan, masukkan sebab dan tekan Pulihkan tempahan.
+
+Harga dan kos item yang tidak diubah kekal seperti asal. Saiz yang diubah menggunakan harga dan kos semasa bagi saiz baharu; status serahannya ditetapkan semula. Bayaran dan resit tidak dipadam. Lebihan bayaran dipaparkan berasingan dan tidak menolak hutang murid lain. Tempahan yang dipadam mempunyai nilai efektif sifar dan tiada kuantiti perlu dibekalkan; jumlah asal dan audit kekal untuk pemulihan. Semua kutipan bersih, termasuk tempahan dipadam, kekal dalam laporan sehingga guru merekod pelarasan yang benar-benar diperlukan.
+
 Tekan Kemaskini dalam jadual Bayaran. Jumlah terkumpul diterima bermaksud jumlah keseluruhan diterima selepas kemaskini, bukan amaun bayaran tambahan. Status Selesai bayar mengisi jumlah penuh; Belum bayar mengisi sifar; Bayar sebahagian memerlukan amaun lebih daripada sifar dan kurang daripada jumlah tempahan. Catatan wajib untuk setiap kemaskini.
 
 Perubahan jumlah direkod sebagai pelarasan bertarikh. Pengurangan menghasilkan amaun negatif untuk pembetulan kutipan mengikut kaedah, tanpa memadam resit asal. Sistem tidak menghantar wang atau refund kepada bank. Semua status dikira daripada jumlah bersih rekod bayaran.
 
-Kos lama per produk digunakan sebagai nilai awal setiap saiz. Tempahan lama mengekalkan kos pada masa tempahan itu disimpan. Kemaskini kos produk hanya digunakan oleh tempahan baharu.
+Kos lama per produk digunakan sebagai nilai awal setiap saiz. Tempahan lama mengekalkan kos ketika disimpan, kecuali item yang saiznya dibetulkan menggunakan tetapan kos saiz baharu.
 
 PDF memaparkan snapshot tempahan selepas simpanan berjaya, bersama tarikh Malaysia, saiz, warna, kuantiti, harga, bayaran, baki dan status. PDF bukan pengesahan automatik transaksi bank.
 
@@ -56,4 +65,4 @@ Data tempahan dan resit sebenar tidak disertakan dalam pakej. Data disimpan di G
 
 Ujian setempat lulus bagi kos setiap saiz, rekod kos lama, pengiraan wang, tiga status bayaran, pelarasan tunai/QR, pengesahan guru, penolakan suntingan lapuk, percubaan semula tanpa pendua, resit dan PDF berbilang halaman. Paparan telefon dan desktop diperiksa dengan rekod contoh sahaja, tanpa menulis rekod ujian ke Google anda.
 
-Pakej ini tidak menerbitkan GitHub atau memasang Apps Script secara automatik. Simpanan sebenar memerlukan Code.gs versi 6 dideploy dengan kebenaran Google yang betul. Panduan tambahan: apps-script/PANDUAN.md.
+Pakej ini tidak menerbitkan GitHub atau memasang Apps Script secara automatik. Simpanan sebenar memerlukan Code.gs versi 8 dideploy dengan kebenaran Google yang betul. Panduan tambahan: apps-script/PANDUAN.md.

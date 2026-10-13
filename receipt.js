@@ -7,7 +7,8 @@ async function createUniformReceiptPdf(order) {
   const date = value => new Intl.DateTimeFormat('ms-MY', { day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'Asia/Kuala_Lumpur' }).format(new Date(value));
   const money = value => `RM ${Number(value).toFixed(2)}`;
   const paid = order.payments.reduce((sum,p) => sum+Math.round(p.amount*100),0)/100;
-  const status = paid === 0 ? 'Belum bayar' : paid < order.total ? 'Bayar sebahagian' : 'Selesai bayar';
+  const total = order.deletedAt ? 0 : order.total;
+  const status = paid === 0 ? 'Belum bayar' : paid < total ? 'Bayar sebahagian' : 'Selesai bayar';
   const clean = value => Array.from(String(value ?? '').replace(/[\r\n\t]/g,' ')).map(char => {
     try { regular.encodeText(char); return char; } catch { return '?'; }
   }).join('');
@@ -55,11 +56,18 @@ async function createUniformReceiptPdf(order) {
   paragraph('Tahun: '+order.year+' | Kelas: '+order.className);
   paragraph('Tarikh tempahan: '+date(order.createdAt)+' (Malaysia)');
   paragraph('Nama pembayar: '+order.payerName);
+  if (order.deletedAt) {
+    paragraph('STATUS TEMPAHAN: DIPADAM',bold);
+    paragraph('Tarikh dipadam: '+date(order.deletedAt));
+    paragraph('Sebab: '+order.deletedReason);
+    paragraph('Jumlah asal: '+money(order.total));
+  }
   heading('SENARAI TEMPAHAN');
   table(['Item','Warna / saiz','Kuantiti','Harga seunit','Jumlah'],order.items.map(item => [item.name,(item.color || '-')+' / '+item.size,String(item.qty),money(item.price),money(Math.round(item.price*100)*item.qty/100)]),[190,110,50,80,85]);
-  paragraph('Jumlah tempahan: '+money(order.total),bold);
+  paragraph('Jumlah tempahan: '+money(total),bold);
   paragraph('Bayaran diterima: '+money(paid),bold);
-  paragraph('Baki bayaran: '+money(order.total-paid),bold);
+  paragraph('Baki bayaran: '+money(Math.max(0,total-paid)),bold);
+  if (paid > total) paragraph('Lebihan / bayaran perlu diurus: '+money(paid-total),bold);
   paragraph('Status bayaran: '+status,bold);
   heading('REKOD BAYARAN');
   if (order.payments.length) table(['Tarikh','Kaedah','Amaun','Resit / catatan'],order.payments.map(payment => [date(payment.date),payment.method,money(payment.amount),[payment.receiptName,payment.note].filter(Boolean).join(' / ') || '-']),[125,65,80,245]);

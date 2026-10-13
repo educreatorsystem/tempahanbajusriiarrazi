@@ -63,7 +63,7 @@ function setup() {
 }
 
 function doGet() {
-  return ContentService.createTextOutput(JSON.stringify({ ok: true, service: 'uniform-api-v1', version: 6, catalogItems: getUniformProducts().length, allowedOrigins: allowedOrigins_() }))
+  return ContentService.createTextOutput(JSON.stringify({ ok: true, service: 'uniform-api-v1', version: 8, catalogItems: getUniformProducts().length, allowedOrigins: allowedOrigins_() }))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
@@ -98,8 +98,9 @@ function dispatch_(request) {
   const action = request.action;
   const payload = request.payload || {};
   if (action === 'login') return login_(payload.password);
+  if (action === 'capabilities') return { version: 8, orderEditing: true };
   if (action === 'catalog') return products_(SpreadsheetApp.openById(CONFIG.sheetId));
-  const admin = ['listOrders','saveProduct','addPayment','setPaymentStatus','setDelivery'].includes(action) ||
+  const admin = ['listOrders','saveProduct','addPayment','setPaymentStatus','setDelivery','editOrderItems','deleteOrder','restoreOrder'].includes(action) ||
     (action === 'saveOrder' && payload.order && payload.order.source === 'Borang manual');
   if (admin) authorize_(request.token);
   const lock = LockService.getScriptLock();
@@ -109,19 +110,23 @@ function dispatch_(request) {
     if (action === 'listOrders') return orders_(db).map(row => row.order).sort((a,b) => b.createdAt.localeCompare(a.createdAt));
     if (action === 'saveProduct') return saveProduct_(db, payload);
     if (action === 'saveOrder') return saveOrder_(db, payload.order, Boolean(request.token && admin));
-    if (action === 'addPayment' || action === 'setPaymentStatus' || action === 'setDelivery') {
+    if (['addPayment','setPaymentStatus','setDelivery','editOrderItems','deleteOrder','restoreOrder'].includes(action)) {
       const entry = orders_(db).find(row => row.order.id === payload.orderId);
       if (!entry) throw new Error('Tempahan tidak ditemui.');
       const order = entry.order;
-      if (action === 'addPayment') {
+      if (['editOrderItems','deleteOrder','restoreOrder'].includes(action)) {
+        updateOrder_(db, order, payload, action);
+      } else if (action === 'addPayment') {
+        if (order.deletedAt) throw new Error('Tempahan telah dipadam. Pulihkan tempahan dahulu.');
         const payment = validatePayment_(payload.payment);
         if (!order.payments.some(item => item.id === payment.id)) {
-          if (paid_(order) + payment.amount > order.total) throw new Error('Jumlah bayaran melebihi baki tempahan.');
+          if (Math.round(paid_(order)*100) + Math.round(payment.amount*100) > Math.round(order.total*100)) throw new Error('Jumlah bayaran melebihi baki tempahan.');
           order.payments.push(uploadReceipt_(payment));
         }
       } else if (action === 'setPaymentStatus') {
         updatePaymentStatus_(order, payload);
       } else {
+        if (order.deletedAt) throw new Error('Tempahan telah dipadam. Pulihkan tempahan dahulu.');
         if (!Number.isInteger(payload.index) || !order.items[payload.index] || typeof payload.delivered !== 'boolean') throw new Error('Item serahan tidak sah.');
         order.items[payload.index].delivered = payload.delivered;
       }
@@ -262,14 +267,15 @@ function uploadReceipt_(payment) {
 
 function storeOrder_(db, order, row) {
   const paid = paid_(order);
-  const paymentStatus = paid === 0 ? 'Belum bayar' : paid < order.total ? 'Bayar sebahagian' : 'Selesai bayar';
-  const delivered = order.items.every(item => item.delivered) ? 'Selesai diserahkan' : 'Belum selesai';
+  const total = effectiveTotal_(order);
+  const paymentStatus = paid === 0 ? 'Belum bayar' : paid < total ? 'Bayar sebahagian' : 'Selesai bayar';
+  const delivered = order.deletedAt ? 'Tempahan dipadam' : order.items.every(item => item.delivered) ? 'Selesai diserahkan' : 'Belum selesai';
   const values = [order.id,order.createdAt,order.student.name,order.year,order.className,Number(order.year) <= 3 ? 1 : 2,order.gender,order.payerName,order.payerPhone,
-    order.items.reduce((sum,item) => sum+item.qty,0),order.total,paid,order.total-paid,paymentStatus,delivered,order.note,order.source,JSON.stringify(order)];
+    order.deletedAt ? 0 : order.items.reduce((sum,item) => sum+item.qty,0),total,paid,total-paid,paymentStatus,delivered,order.deletedAt ? 'DIPADAM: '+order.deletedReason : order.note,order.source,JSON.stringify(order)];
   const sheet = tab_(db,'orders');
   sheet.getRange(row || sheet.getLastRow()+1,1,1,values.length).setValues([values.map(cell_)]);
   // The JSON row is canonical. Retrying the same ID rebuilds the readable tabs.
-  replaceRows_(tab_(db,'items'),order.id,order.items.map((item,index) => [order.id,index+1,order.student.name,order.className,item.name,item.color,item.size,item.qty,item.price,item.price*item.qty,item.delivered ? 'Selesai diserahkan' : 'Belum selesai']));
+  replaceRows_(tab_(db,'items'),order.id,order.deletedAt ? [] : order.items.map((item,index) => [order.id,index+1,order.student.name,order.className,item.name,item.color,item.size,item.qty,item.price,item.price*item.qty,item.delivered ? 'Selesai diserahkan' : 'Belum selesai']));
   replaceRows_(tab_(db,'payments'),order.id,order.payments.map(p => [order.id,p.id,p.date,order.student.name,p.method,p.amount,p.receiptName,p.receiptFileId || '',p.receiptUrl || '']));
   SpreadsheetApp.flush();
 }
@@ -284,11 +290,11 @@ function replaceRows_(sheet,id,rows) {
 
 function updatePaymentStatus_(order, payload) {
   if (!/^[a-zA-Z0-9-]{10,80}$/.test(payload.updateId || '')) throw new Error('ID kemaskini tidak sah.');
-  order.paymentUpdates = order.paymentUpdates || [];
-  if (order.paymentUpdates.some(update => update.id === payload.updateId)) return;
+  if ((order.paymentUpdates || []).some(update => update.id === payload.updateId)) return;
+  if (payload.expectedOrder != null && payload.expectedOrder !== JSON.stringify(order)) throw new Error('Tempahan telah berubah. Muat semula rekod sebelum kemaskini.');
   const received = amount_(payload.received);
-  const status = received === 0 ? 'Belum bayar' : received < order.total ? 'Bayar sebahagian' : 'Selesai bayar';
-  if (received > order.total || payload.status !== status) throw new Error('Status tidak sepadan dengan jumlah bayaran diterima.');
+  const status = received === 0 ? 'Belum bayar' : received < effectiveTotal_(order) ? 'Bayar sebahagian' : 'Selesai bayar';
+  if (received > Math.max(effectiveTotal_(order),paid_(order)) || payload.status !== status) throw new Error('Status tidak sepadan dengan jumlah bayaran diterima.');
   if (!['Tunai','QR'].includes(payload.method)) throw new Error('Kaedah bayaran tidak sah.');
   const before = paid_(order);
   if (amount_(payload.expectedPaid) !== before) throw new Error('Bayaran telah berubah. Muat semula rekod sebelum kemaskini.');
@@ -313,9 +319,56 @@ function updatePaymentStatus_(order, payload) {
     id: payload.updateId + '-' + index, date, amount: adjustment.amount, method: adjustment.method,
     type: 'Pelarasan guru', note, receiptName: '', receiptUrl: ''
   }));
+  order.paymentUpdates = order.paymentUpdates || [];
   order.paymentUpdates.push({ id: payload.updateId, date, before, received, status, note });
 }
 
+function updateOrder_(db, order, payload, action) {
+  if (!/^[a-zA-Z0-9-]{10,80}$/.test(payload.updateId || '')) throw new Error('ID kemaskini tidak sah.');
+  const previous = (order.orderUpdates || []).find(update => update.id === payload.updateId);
+  if (previous) {
+    if (previous.action !== action) throw new Error('ID kemaskini sudah digunakan.');
+    return;
+  }
+  if (payload.expectedOrder !== JSON.stringify(order)) throw new Error('Tempahan telah berubah. Muat semula rekod sebelum kemaskini.');
+  const note = text_(payload.note,500);
+  if (!note) throw new Error('Catatan pembetulan diperlukan.');
+  const date = new Date().toISOString(), beforeTotal = effectiveTotal_(order);
+  const changes = [];
+  if (action === 'editOrderItems') {
+    if (order.deletedAt) throw new Error('Pulihkan tempahan sebelum mengedit item.');
+    if (!Array.isArray(payload.items) || !payload.items.length || payload.items.length > order.items.length) throw new Error('Sekurang-kurangnya satu item diperlukan. Gunakan Padam tempahan untuk keseluruhan tempahan.');
+    const seen = [], catalog = products_(db);
+    const items = payload.items.map(input => {
+      if (!Number.isInteger(input.index) || !order.items[input.index] || seen.includes(input.index)) throw new Error('Item tempahan tidak sah.');
+      seen.push(input.index);
+      const original = order.items[input.index];
+      const size = String(input.size);
+      const updated = Object.assign({},original);
+      if (size !== original.size) {
+        const product = catalog.find(product => product.id === original.productId && product.gender === order.gender && product.years.includes(Number(order.year)));
+        if (!product || !product.sizes.includes(size)) throw new Error('Saiz tidak sesuai untuk produk atau tahun murid.');
+        updated.size = size; updated.price = product.sizePrices[size]; updated.cost = product.sizeCosts[size]; updated.delivered = false;
+        changes.push({ product: original.name, qty: original.qty, fromSize: original.size, toSize: size, fromPrice: original.price, toPrice: updated.price });
+      }
+      return updated;
+    });
+    order.items.forEach((item,index) => { if (!seen.includes(index)) changes.push({ product:item.name,qty:item.qty,fromSize:item.size,removed:true }); });
+    if (!changes.length) throw new Error('Tiada perubahan item untuk disimpan.');
+    order.items = items;
+    order.total = items.reduce((sum,item) => sum+Math.round(item.price*100)*item.qty,0)/100;
+  } else if (action === 'deleteOrder') {
+    if (order.deletedAt) throw new Error('Tempahan sudah dipadam.');
+    order.deletedAt = date; order.deletedReason = note;
+  } else {
+    if (!order.deletedAt) throw new Error('Tempahan masih aktif.');
+    delete order.deletedAt; delete order.deletedReason;
+  }
+  order.orderUpdates = order.orderUpdates || [];
+  order.orderUpdates.push({ id:payload.updateId,action,date,note,beforeTotal,total:effectiveTotal_(order),changes });
+}
+
+function effectiveTotal_(order) { return order.deletedAt ? 0 : order.total; }
 function paid_(order) { return order.payments.reduce((sum,p) => sum+Math.round(p.amount*100),0)/100; }
 function text_(value,max) { return String(value || '').trim().slice(0,max); }
 function cell_(value) { return typeof value === 'string' && /^[=+@-]/.test(value) ? "'"+value : value; }

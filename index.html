@@ -8,7 +8,7 @@
       name="description"
       content="Sistem tempahan, bayaran, dan pemantauan penyerahan uniform sekolah."
     />
-    <link rel="stylesheet" href="./styles.css?v=6" />
+    <link rel="stylesheet" href="./styles.css?v=8" />
   </head>
   <body>
     <div class="shell">
@@ -260,17 +260,21 @@
                     <label for="manual-gender">Uniform</label>
                     <select id="manual-gender"><option>Lelaki</option><option>Perempuan</option></select>
                   </div>
-                  <div class="field">
-                    <label for="manual-student">Nama murid</label>
-                    <select id="manual-student"></select>
+                  <div class="field student-autocomplete" id="manual-student-field">
+                    <label for="manual-student-search">Nama murid</label>
+                    <input id="manual-student-search" type="search" placeholder="Cari nama atau kelas" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="manual-student-suggestions" aria-expanded="false" />
+                    <input id="manual-student" type="hidden" />
+                    <div id="manual-student-suggestions" class="student-suggestions" role="listbox" aria-label="Cadangan nama murid" hidden></div>
+                    <div class="manual-student-selection"><span id="manual-student-details"></span><button id="change-manual-student" type="button" class="ghost-button" hidden>Tukar murid</button></div>
                   </div>
                   <div class="field">
                     <label for="manual-note">Catatan</label>
                     <input id="manual-note" placeholder="Catatan borang manual" />
                   </div>
                 </div>
-                <div id="manual-products" class="order-grid compact"></div>
-                <p>Jumlah tempahan: <strong id="manual-total">RM0.00</strong></p>
+                <div class="table-wrap">
+                  <table class="manual-order-table"><thead><tr><th>Bil</th><th>Produk</th><th>Warna</th><th>Saiz</th><th class="number">Harga seunit</th><th>Kuantiti</th><th class="number">Jumlah</th></tr></thead><tbody id="manual-products"></tbody><tfoot><tr><th colspan="6">Jumlah tempahan</th><td class="number"><strong id="manual-total">RM0.00</strong></td></tr></tfoot></table>
+                </div>
                 <button class="primary-button" id="save-manual-order">
                   <span data-icon="save"></span>
                   Simpan tempahan manual
@@ -292,6 +296,7 @@
                   <div class="field"><label for="payment-item">Item</label><select id="payment-item"><option value="">Semua item</option></select></div>
                   <div class="field"><label for="payment-status-filter">Status bayaran</label><select id="payment-status-filter"><option value="">Semua status</option><option>Belum bayar</option><option>Bayar sebahagian</option><option>Selesai bayar</option></select></div>
                 </div>
+                <label class="archive-filter"><input id="payment-archived" type="checkbox" />Tempahan dipadam</label>
                 <div id="payment-summary" class="payment-summary" aria-live="polite"></div>
                 <div class="table-wrap">
                   <table class="payments-table"><thead><tr><th>Murid / kelas / tarikh</th><th>Item tempahan</th><th class="number">Jumlah</th><th class="number">Diterima</th><th class="number">Baki</th><th>Status</th><th></th></tr></thead><tbody id="payment-records"></tbody></table>
@@ -375,9 +380,13 @@
     </div>
 
     <dialog id="payment-editor" aria-labelledby="payment-editor-heading">
-      <form id="payment-editor-form">
-        <div class="dialog-head"><h3 id="payment-editor-heading">Kemaskini bayaran</h3><button id="close-payment-editor" class="ghost-button" type="button" aria-label="Tutup">Tutup</button></div>
+        <div class="dialog-head"><h3 id="payment-editor-heading">Kemaskini tempahan & bayaran</h3><button id="close-payment-editor" class="ghost-button" type="button" aria-label="Tutup">Tutup</button></div>
         <div id="payment-editor-student"></div>
+        <div class="editor-modes" role="tablist" aria-label="Kemaskini">
+          <button type="button" role="tab" id="editor-mode-payment" data-editor-mode="payment" aria-controls="payment-editor-form" aria-selected="true">Bayaran</button>
+          <button type="button" role="tab" id="editor-mode-order" data-editor-mode="order" aria-controls="order-editor-form" aria-selected="false">Item tempahan</button>
+        </div>
+      <form id="payment-editor-form" role="tabpanel" aria-labelledby="editor-mode-payment">
         <div class="form-grid">
           <div class="field"><label for="edit-payment-status">Status bayaran</label><select id="edit-payment-status"><option>Belum bayar</option><option>Bayar sebahagian</option><option>Selesai bayar</option></select></div>
           <div class="field"><label for="edit-payment-received">Jumlah terkumpul diterima (RM)</label><input id="edit-payment-received" type="number" min="0" step="0.01" required /></div>
@@ -389,13 +398,26 @@
         <button class="primary-button" id="save-payment-status" type="submit"><span data-icon="save"></span>Simpan bayaran</button>
         <h4>Sejarah bayaran</h4><div id="payment-history"></div>
       </form>
+      <form id="order-editor-form" role="tabpanel" aria-labelledby="editor-mode-order" hidden>
+        <p id="order-editor-backend" class="form-error" hidden>Edit saiz dan padam tempahan memerlukan Apps Script versi 8.</p>
+        <div class="table-wrap"><table class="edit-items-table"><thead><tr><th>Produk / warna</th><th>Saiz</th><th>Kuantiti</th><th class="number">Harga seunit</th><th class="number">Jumlah</th><th></th></tr></thead><tbody id="edit-order-items"></tbody></table></div>
+        <div id="order-editor-summary" class="payment-summary" aria-live="polite"></div>
+        <div class="field"><label for="edit-order-note">Sebab pembetulan / pemadaman</label><input id="edit-order-note" maxlength="500" required /></div>
+        <p id="order-editor-error" class="form-error" role="alert" hidden></p>
+        <div class="record-actions">
+          <button id="save-order-items" class="primary-button" type="submit"><span data-icon="save"></span>Simpan item</button>
+          <button id="delete-order" class="danger-button" type="button"><span data-icon="trash"></span>Padam tempahan</button>
+          <button id="restore-order" class="ghost-button" type="button" hidden><span data-icon="refresh"></span>Pulihkan tempahan</button>
+        </div>
+        <h4>Sejarah pembetulan</h4><div id="order-edit-history"></div>
+      </form>
     </dialog>
     <template id="icon-template"></template>
     <script id="teacher-login-config" type="application/json">{"password":"Guru1234"}</script>
     <script src="./catalog.js?v=6"></script>
     <script src="./api.js?v=6"></script>
     <script src="./vendor/pdf-lib.min.js"></script>
-    <script src="./receipt.js?v=6"></script>
-    <script src="./app.js?v=6" type="module"></script>
+    <script src="./receipt.js?v=8"></script>
+    <script src="./app.js?v=8" type="module"></script>
   </body>
 </html>
