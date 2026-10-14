@@ -1,9 +1,10 @@
-# Sistem Tempahan Uniform Sekolah - Versi 8
+# Sistem Tempahan Uniform Sekolah - Versi 9
 
 Laman GitHub: https://educreatorsystem.github.io/tempahanbajusriiarrazi/
 
 ## Perubahan
 
+- Header memaparkan lencana sekolah yang diberikan, SISTEM TEMPAHAN UNIFORM dan nama SRII AR RAZI MERU 2 yang lebih besar. Paparan disesuaikan untuk komputer dan telefon.
 - Bayaran > Kemaskini > Item tempahan membolehkan guru membetulkan saiz, membuang item, memadam keseluruhan tempahan dan memulihkannya. Jumlah dikira semula; bayaran dan resit asal dikekalkan.
 - Tab Tempahan murid membolehkan guru menaip nama atau kelas, kemudian memilih nama daripada cadangan. Kelas dan tahun membezakan nama yang sama. Carian turut menyokong pilihan melalui papan kekunci.
 - Uniform dalam tab Tempahan murid dipaparkan dalam jadual: produk, warna, saiz, harga seunit, kuantiti, jumlah item dan jumlah keseluruhan. Pertukaran murid mengosongkan item draf lama.
@@ -17,14 +18,14 @@ Laman GitHub: https://educreatorsystem.github.io/tempahanbajusriiarrazi/
 
 1. Ekstrak pakej ZIP.
 2. Di repository tempahanbajusriiarrazi, pilih Add file > Upload files.
-3. Muat naik kandungan pakej pada aras utama repository. Gantikan fail lama: index.html, styles.css, app.js, api.js dan catalog.js. Sertakan receipt.js, bank-islam-qr.jpeg, folder vendor dan folder apps-script. Jangan letakkan index.html dalam subfolder tambahan.
+3. Muat naik kandungan pakej pada aras utama repository. Gantikan fail lama: index.html, styles.css, app.js, api.js dan catalog.js. Sertakan lencana-sekolah.jpeg, receipt.js, bank-islam-qr.jpeg, folder vendor dan folder apps-script. Jangan letakkan index.html dalam subfolder tambahan.
 4. Commit ke branch yang digunakan oleh GitHub Pages. Tunggu penerbitan selesai, kemudian muat semula laman.
 
 Tiada npm atau proses build diperlukan. PDF dijana menggunakan pustaka tempatan dalam vendor/pdf-lib.min.js. Lesen disertakan dalam vendor/LICENSE.md.
 
 ## Kemas Kini Apps Script
 
-Pakej frontend dan Code.gs ialah versi 8. Apps Script mesti dideploy semula untuk mengaktifkan pembetulan saiz, pemadaman dan pemulihan tempahan.
+Frontend ialah versi 9; Code.gs kekal versi 8. Jika Apps Script versi 8 sudah aktif, tidak perlu deploy semula untuk perubahan header dan lencana. Jika belum, gunakan langkah di bawah untuk mengaktifkan pembetulan saiz, pemadaman dan pemulihan tempahan.
 
 1. Buka projek Apps Script untuk URL /exec sedia ada.
 2. Gantikan kandungan Code.gs dengan apps-script/Code.gs dalam pakej ini. Ia lengkap dalam satu fail, termasuk katalog. Pastikan tiada fungsi doGet, doPost atau getUniformProducts yang bertindih.
